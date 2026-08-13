@@ -17,7 +17,6 @@ const io = new Server(httpServer, {
   }
 });
 
-// Importação dinâmica graciosa do Vercel Postgres
 let sql = null;
 if (process.env.POSTGRES_URL) {
   try {
@@ -92,6 +91,17 @@ if (process.env.NODE_ENV === 'production') {
 io.on('connection', (socket) => {
   console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
   socket.emit('state-update', queueState);
+
+  // Evento: Definir Senha Inicial / Contador Inicial
+  socket.on('set-initial-ticket', (data) => {
+    const num = parseInt(data.number, 10);
+    if (!isNaN(num) && num >= 1 && num <= 1000) {
+      // Define para que a próxima chamada seja este número exatamente
+      queueState.counter = num - 1;
+      io.emit('state-update', queueState);
+      console.log(`[Contador CMIP] Senha inicial definida para começar em: ${num}`);
+    }
+  });
 
   // Evento: Chamar Próxima Senha (1 a 1000)
   socket.on('call-next', async (data = {}) => {
@@ -199,8 +209,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   const localIps = getLocalIpAddresses();
   console.log(`\n==================================================`);
   console.log(`🚀 CMIP SERVIDOR DE SENHAS (1 A 1000) RODANDO!`);
-  console.log(`📍 Servidor Backend: http://localhost:${PORT}`);
-  console.log(`📺 Endereços para a TV na Rede Local:`);
+  console.log(`📍 Backend: http://localhost:${PORT}`);
   localIps.forEach(ip => {
     console.log(`   👉 http://${ip}:5173/tv`);
   });

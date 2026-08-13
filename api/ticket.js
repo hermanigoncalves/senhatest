@@ -1,15 +1,13 @@
 import { sql } from '@vercel/postgres';
 
-// Memória de backup se Vercel Postgres não estiver conectado ainda
 let memoryState = {
   counter: 0,
   currentTicket: null,
   history: [],
-  desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção']
+  desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
 };
 
 export default async function handler(req, res) {
-  // Configuração de CORS para requisições de qualquer origem
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -23,7 +21,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  // GET: Retorna o estado atual da fila
   if (req.method === 'GET') {
     if (process.env.POSTGRES_URL) {
       try {
@@ -46,7 +43,7 @@ export default async function handler(req, res) {
           timestamp: new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
         }));
 
-        const counter = rows[0] ? rows[0].raw_number : 0;
+        const counter = rows[0] ? rows[0].raw_number : memoryState.counter;
 
         return res.status(200).json({
           counter,
@@ -61,9 +58,21 @@ export default async function handler(req, res) {
     return res.status(200).json(memoryState);
   }
 
-  // POST: Chamar próxima senha (1 a 1000)
   if (req.method === 'POST') {
-    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber } = req.body || {};
+    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber } = req.body || {};
+
+    // Ação: Definir número inicial da senha (Ex: 50 -> próxima será 50)
+    if (action === 'set-initial-ticket' && initialNumber) {
+      const num = parseInt(initialNumber, 10);
+      if (!isNaN(num) && num >= 1 && num <= 1000) {
+        memoryState.counter = num - 1;
+        return res.status(200).json({
+          success: true,
+          message: `Próxima senha iniciará em ${String(num).padStart(4, '0')}`,
+          state: memoryState
+        });
+      }
+    }
 
     let formattedNumber = '';
     let nextCounter = 0;
@@ -75,11 +84,10 @@ export default async function handler(req, res) {
       }
       nextCounter = memoryState.counter;
     } else {
-      // Incrementar 1 a 1000
       if (process.env.POSTGRES_URL) {
         try {
           const { rows } = await sql`SELECT raw_number FROM tickets ORDER BY id DESC LIMIT 1;`;
-          const lastNum = rows[0] ? rows[0].raw_number : 0;
+          const lastNum = rows[0] ? rows[0].raw_number : memoryState.counter;
           nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
         } catch (e) {
           nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;

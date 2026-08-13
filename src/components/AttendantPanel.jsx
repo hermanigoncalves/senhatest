@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  socket, fetchVercelState, callNextVercel, 
+  socket, fetchVercelState, setInitialTicketVercel, callNextVercel, 
   callCustomVercel, repeatCallVercel, resetQueueVercel 
 } from '../utils/socket';
 import { 
-  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus
+  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, Check
 } from 'lucide-react';
 
 export default function AttendantPanel() {
@@ -17,6 +17,8 @@ export default function AttendantPanel() {
 
   const [selectedDesk, setSelectedDesk] = useState('Guichê 01');
   const [customNumber, setCustomNumber] = useState('');
+  const [initialNumber, setInitialNumber] = useState('');
+  const [initialSaved, setInitialSaved] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
   const isVercelHost = window.location.hostname.includes('vercel.app');
@@ -50,6 +52,25 @@ export default function AttendantPanel() {
       clearInterval(interval);
     };
   }, []);
+
+  const handleSetInitial = async (e) => {
+    e.preventDefault();
+    if (!initialNumber.trim()) return;
+
+    const num = parseInt(initialNumber.trim(), 10);
+    if (isNaN(num) || num < 1 || num > 1000) return;
+
+    if (isVercelHost || !socket.connected) {
+      const res = await setInitialTicketVercel(num);
+      if (res?.state) updateState(res.state);
+    } else {
+      socket.emit('set-initial-ticket', { number: num });
+    }
+
+    setInitialSaved(true);
+    setTimeout(() => setInitialSaved(false), 2500);
+    setInitialNumber('');
+  };
 
   const handleCallNext = async () => {
     if (isVercelHost || !socket.connected) {
@@ -93,6 +114,8 @@ export default function AttendantPanel() {
     setShowResetModal(false);
   };
 
+  const nextNumberToCall = queueState.counter >= 1000 ? 1 : queueState.counter + 1;
+
   return (
     <div className="min-h-screen bg-cmip-950 text-slate-100 font-['Montserrat',sans-serif] p-4 md:p-8 cmip-plus-pattern relative">
       
@@ -125,25 +148,52 @@ export default function AttendantPanel() {
           {/* CONTROLE DO ATENDENTE */}
           <div className="lg:col-span-7 space-y-6">
             
-            {/* SELEÇÃO DE GUICHÊ */}
-            <div className="p-6 bg-cmip-900/70 border border-cmip-600/30 rounded-3xl glass-panel space-y-4">
-              <h2 className="text-base font-bold text-cmip-100 uppercase tracking-wider flex items-center gap-2">
-                <Users className="w-5 h-5 text-cmip-400" />
-                Guichê / Consultório de Atendimento
-              </h2>
-
-              <div>
-                <label className="block text-xs font-semibold text-cmip-100/70 mb-2">SELECIONE SEU LOCAL</label>
+            {/* SELEÇÃO DE GUICHÊ & CAMPO SENHA INICIAL */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              
+              {/* Seleção de Guichê */}
+              <div className="p-6 bg-cmip-900/70 border border-cmip-600/30 rounded-3xl glass-panel space-y-3">
+                <h2 className="text-sm font-bold text-cmip-100 uppercase tracking-wider flex items-center gap-2">
+                  <Users className="w-4 h-4 text-cmip-400" />
+                  Guichê / Local
+                </h2>
                 <select 
                   value={selectedDesk}
                   onChange={(e) => setSelectedDesk(e.target.value)}
-                  className="w-full bg-cmip-950 border border-cmip-500/50 text-white rounded-xl px-4 py-3 font-bold text-base focus:outline-none focus:border-cmip-400"
+                  className="w-full bg-cmip-950 border border-cmip-500/50 text-white rounded-xl px-4 py-3 font-bold text-sm focus:outline-none focus:border-cmip-400"
                 >
                   {queueState.desks.map(desk => (
                     <option key={desk} value={desk}>{desk}</option>
                   ))}
                 </select>
               </div>
+
+              {/* CAMPO NOVO: DEFINIR SENHA INICIAL DA FILA */}
+              <div className="p-6 bg-cmip-900/70 border border-cmip-600/30 rounded-3xl glass-panel space-y-3">
+                <h2 className="text-sm font-bold text-cmip-100 uppercase tracking-wider flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-cmip-400" />
+                  Definir Senha Inicial
+                </h2>
+                <form onSubmit={handleSetInitial} className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    placeholder="Ex: 50 ou 100"
+                    value={initialNumber}
+                    onChange={(e) => setInitialNumber(e.target.value)}
+                    className="flex-1 bg-cmip-950 border border-cmip-500/50 text-white rounded-xl px-3.5 py-2.5 font-bold text-sm focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/40"
+                  />
+                  <button
+                    type="submit"
+                    className="px-4 py-2.5 bg-cmip-500 hover:bg-cmip-400 text-cmip-950 font-black text-xs rounded-xl shadow-md transition-colors shrink-0 flex items-center gap-1.5"
+                  >
+                    {initialSaved ? <Check className="w-4 h-4" /> : null}
+                    <span>{initialSaved ? 'Definido!' : 'Definir'}</span>
+                  </button>
+                </form>
+              </div>
+
             </div>
 
             {/* BOTÃO PRINCIPAL CHAMAR PRÓXIMA */}
@@ -152,8 +202,10 @@ export default function AttendantPanel() {
               <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-cmip-500/10 rounded-full blur-2xl pointer-events-none" />
 
               <div>
-                <span className="text-xs font-bold tracking-widest text-cmip-400 uppercase">Sequência Numérica (1 a 1000)</span>
-                <h3 className="text-3xl font-black text-white mt-1">Chamar Próximo Paciente</h3>
+                <span className="text-xs font-bold tracking-widest text-cmip-400 uppercase">
+                  Próxima Senha a Ser Chamada: <strong className="text-white text-sm bg-cmip-950 px-3 py-1 rounded-lg border border-cmip-500/30">{String(nextNumberToCall).padStart(4, '0')}</strong>
+                </span>
+                <h3 className="text-3xl font-black text-white mt-3">Chamar Próximo Paciente</h3>
                 <p className="text-xs text-cmip-100/80 mt-1">Praticidade e agilidade no seu atendimento!</p>
               </div>
 
@@ -218,7 +270,7 @@ export default function AttendantPanel() {
               </div>
 
               <div className="w-full pt-4 border-t border-cmip-600/30 flex items-center justify-between text-xs text-cmip-100/70">
-                <span>Último número gerado: <strong>{queueState.counter} / 1000</strong></span>
+                <span>Contador atual: <strong>{queueState.counter} / 1000</strong></span>
                 <button
                   onClick={() => setShowResetModal(true)}
                   className="text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1 transition-colors"

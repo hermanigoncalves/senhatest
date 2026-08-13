@@ -12,7 +12,6 @@ export const socket = io(URL, {
   reconnectionDelay: 2000
 });
 
-// Utilitários Vercel / HTTP REST Fallback
 export async function fetchVercelState() {
   try {
     const res = await fetch('/api/ticket');
@@ -20,6 +19,19 @@ export async function fetchVercelState() {
     return await res.json();
   } catch (err) {
     return null;
+  }
+}
+
+export async function setInitialTicketVercel(initialNumber) {
+  try {
+    const res = await fetch('/api/ticket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set-initial-ticket', initialNumber })
+    });
+    return await res.json();
+  } catch (err) {
+    console.error('Erro ao definir senha inicial Vercel:', err);
   }
 }
 
