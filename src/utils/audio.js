@@ -3,6 +3,7 @@
 let audioCtx = null;
 let ptVoice = null;
 let chimeAudioElement = null;
+let activeUtterance = null;
 
 function generateChimeDataUri() {
   const sampleRate = 22050;
@@ -222,10 +223,9 @@ export function speakTicketOnline(phrase) {
   return new Promise((resolve) => {
     const text = encodeURIComponent(phrase);
     
-    // Servidores TTS públicos com suporte a PT-BR e sem bloqueio de CORS/HTTP 403
+    // Servidores TTS públicos com suporte a PT-BR
     const ttsUrls = [
       `https://api.streamelements.com/kappa/v2/speech?voice=Vitoria&text=${text}`,
-      `https://api.streamelements.com/kappa/v2/speech?voice=Camila&text=${text}`,
       `https://translate.google.com/translate_tts?ie=UTF-8&q=${text}&tl=pt-BR&client=tw-ob`
     ];
 
@@ -251,9 +251,22 @@ export function speakTicketOnline(phrase) {
           }
         };
 
-        audio.onended = done;
-        audio.onerror = () => {
+        const timer = setTimeout(() => {
           if (!hasResolved) {
+            hasResolved = true;
+            playUrl();
+          }
+        }, 1200);
+
+        audio.onended = () => {
+          clearTimeout(timer);
+          done();
+        };
+
+        audio.onerror = () => {
+          clearTimeout(timer);
+          if (!hasResolved) {
+            hasResolved = true;
             playUrl();
           }
         };
@@ -261,7 +274,9 @@ export function speakTicketOnline(phrase) {
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           playPromise.then(() => {}).catch(() => {
+            clearTimeout(timer);
             if (!hasResolved) {
+              hasResolved = true;
               playUrl();
             }
           });
@@ -282,7 +297,6 @@ export function speakTicket(number, desk) {
 
     if (!isSamsungTv && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        // Cancela apenas se já houver uma fala em andamento, evitando engasgo do motor
         if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
           window.speechSynthesis.cancel();
         }
@@ -291,39 +305,44 @@ export function speakTicket(number, desk) {
         const voices = window.speechSynthesis.getVoices();
         const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')))) || (voices && voices[0]);
 
-        const utterance = new SpeechSynthesisUtterance(phrase);
-        utterance.lang = 'pt-BR';
-        utterance.rate = 1.05; // Velocidade fluida e natural
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
+        // Fix pro bug do Garbage Collector no Chrome que causava o congelamento da voz e o atraso de 8 segundos
+        activeUtterance = new SpeechSynthesisUtterance(phrase);
+        activeUtterance.lang = 'pt-BR';
+        activeUtterance.rate = 1.05;
+        activeUtterance.pitch = 1.0;
+        activeUtterance.volume = 1.0;
         if (validPtVoice) {
-          utterance.voice = validPtVoice;
+          activeUtterance.voice = validPtVoice;
         }
 
         let hasEnded = false;
         const finish = () => {
           if (!hasEnded) {
             hasEnded = true;
+            activeUtterance = null;
             resolve();
           }
         };
 
-        utterance.onend = finish;
-        utterance.onerror = () => {
+        activeUtterance.onend = finish;
+        activeUtterance.onerror = () => {
           if (!hasEnded) {
             hasEnded = true;
+            activeUtterance = null;
             speakTicketOnline(phrase).then(resolve);
           }
         };
 
+        // Reduzido o timeout de fallback de 3000ms para 600ms
         setTimeout(() => {
           if (!hasEnded) {
             hasEnded = true;
+            activeUtterance = null;
             speakTicketOnline(phrase).then(resolve);
           }
-        }, 3000);
+        }, 600);
 
-        window.speechSynthesis.speak(utterance);
+        window.speechSynthesis.speak(activeUtterance);
         return;
       } catch (err) {
         console.error('[Voz Nativa Error]', err);
