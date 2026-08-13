@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket, fetchVercelState } from '../utils/socket';
-import { announceTicket, initAudioAutoUnlock, unlockAudio, getAudioContext } from '../utils/audio';
-import { Volume2, Wifi, Maximize2, Clock, VolumeX, Plus } from 'lucide-react';
+import { announceTicket, initAudioAutoUnlock, unlockAudio } from '../utils/audio';
+import { Volume2, Wifi, Maximize2, Clock, Plus } from 'lucide-react';
 
 export default function TvPanel() {
   const [currentTicket, setCurrentTicket] = useState(null);
@@ -10,33 +10,22 @@ export default function TvPanel() {
   const [isCalling, setIsCalling] = useState(false);
   const [timeStr, setTimeStr] = useState('');
   const [dateStr, setDateStr] = useState('');
-  const [isAudioActive, setIsAudioActive] = useState(true);
 
   const callingTimerRef = useRef(null);
   const lastTicketIdRef = useRef(null);
 
   const handleTouch = () => {
     unlockAudio();
-    checkAudioStatus();
-  };
-
-  const checkAudioStatus = () => {
-    const ctx = getAudioContext();
-    if (ctx) {
-      setIsAudioActive(ctx.state === 'running');
-    }
   };
 
   useEffect(() => {
-    initAudioAutoUnlock((unlocked) => {
-      setIsAudioActive(unlocked);
-    });
+    // Tenta desbloqueio de áudio automático no carregamento
+    initAudioAutoUnlock();
 
     const updateClock = () => {
       const now = new Date();
       setTimeStr(now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setDateStr(now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
-      checkAudioStatus();
     };
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
@@ -54,7 +43,7 @@ export default function TvPanel() {
       if (callingTimerRef.current) clearTimeout(callingTimerRef.current);
       callingTimerRef.current = setTimeout(() => setIsCalling(false), 4000);
 
-      // Desbloqueia e executa Bip + Voz
+      // Desbloqueia e executa Bip + Voz 100% automático sem telas de aviso
       unlockAudio();
       announceTicket(ticket.number, ticket.desk);
     };
@@ -116,10 +105,10 @@ export default function TvPanel() {
     <div 
       onClick={handleTouch}
       onTouchStart={handleTouch}
-      className="min-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative"
+      className="min-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative cursor-pointer"
     >
       
-      {/* PADRÃO DE CRUZES DECORATIVAS CMIP */}
+      {/* PADRÃO DE CRUZES DECORATIVAS CMIP NAS PONTAS */}
       <div className="absolute top-6 left-6 grid grid-cols-4 gap-2 opacity-25 pointer-events-none">
         {[...Array(16)].map((_, i) => (
           <Plus key={i} className="w-6 h-6 text-cmip-400" />
@@ -131,17 +120,6 @@ export default function TvPanel() {
         ))}
       </div>
 
-      {/* BANNER DISCRETO DE SOM APENAS SE BLOQUEADO PELO AUTOPLAY DO CHROME */}
-      {!isAudioActive && (
-        <div 
-          onClick={handleTouch}
-          className="bg-amber-500 text-slate-950 px-6 py-2.5 font-bold text-center text-sm shadow-xl flex items-center justify-center gap-3 cursor-pointer z-50 animate-pulse"
-        >
-          <VolumeX className="w-5 h-5" />
-          <span>O Chrome bloqueou o áudio automático. Toque aqui ou no controle da TV 1 vez para liberar o som!</span>
-        </div>
-      )}
-
       {/* CABEÇALHO DA TV CMIP */}
       <header className="px-8 py-5 bg-cmip-900/90 border-b border-cmip-600/30 flex items-center justify-between shadow-2xl backdrop-blur-md relative z-10">
         <div className="flex items-center gap-5">
@@ -150,9 +128,9 @@ export default function TvPanel() {
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-black tracking-tight text-white uppercase flex items-center gap-2">
-              <span className="text-cmip-400">CMIP</span> Painel da TV
+              <span className="text-cmip-400">CMIP</span> PAINEL DA TV
             </h1>
-            <p className="text-xs text-cmip-100 font-bold tracking-wider uppercase">Praticidade e agilidade no seu atendimento!</p>
+            <p className="text-xs text-cmip-100 font-bold tracking-wider uppercase">PRATICIDADE E AGILIDADE NO SEU ATENDIMENTO!</p>
           </div>
         </div>
 
@@ -201,17 +179,10 @@ export default function TvPanel() {
                 SENHA CMIP
               </span>
 
-              <button 
-                onClick={handleTouch}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-                  isAudioActive 
-                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40'
-                    : 'bg-amber-500 text-slate-950 font-bold animate-pulse'
-                }`}
-              >
-                {isAudioActive ? <Volume2 className="w-4 h-4 text-emerald-400" /> : <VolumeX className="w-4 h-4 text-slate-950" />}
-                <span>{isAudioActive ? 'Áudio Ativo' : 'Toque aqui para ativar áudio'}</span>
-              </button>
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/80 text-emerald-300 text-xs font-semibold">
+                <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+                <span>Áudio & Voz CMIP</span>
+              </div>
             </div>
 
             <div className="my-auto py-8">
