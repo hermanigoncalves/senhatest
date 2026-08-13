@@ -82,11 +82,12 @@ export default function AttendantPanel() {
   };
 
   const handleRepeatCall = async () => {
+    if (!queueState.currentTicket) return;
     if (isVercelHost || !socket.connected) {
-      const res = await repeatCallVercel(queueState.currentTicket);
+      const res = await repeatCallVercel(queueState.currentTicket, selectedDesk);
       if (res?.state) updateState(res.state);
     } else {
-      socket.emit('repeat-call');
+      socket.emit('repeat-call', { desk: selectedDesk });
     }
   };
 

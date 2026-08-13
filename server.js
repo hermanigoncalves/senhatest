@@ -260,14 +260,16 @@ io.on('connection', (socket) => {
     io.emit('state-update', queueState);
   });
 
-  socket.on('repeat-call', async () => {
+  socket.on('repeat-call', async (data = {}) => {
     if (!queueState.currentTicket) return;
 
+    const desk = data.desk || queueState.currentTicket.desk || queueState.desks[0];
     queueState.callSequence += 1;
     const repeatedTicket = {
       ...queueState.currentTicket,
       id: Date.now(),
       callId: queueState.callSequence,
+      desk: desk,
       isRepeat: true,
       timestamp: formatBrasiliaTime()
     };
@@ -281,7 +283,7 @@ io.on('connection', (socket) => {
           call_id: queueState.callSequence,
           number: repeatedTicket.number,
           raw_number: repeatedTicket.rawNumber || queueState.counter,
-          desk: repeatedTicket.desk,
+          desk: desk,
           type: repeatedTicket.type || 'Normal'
         }])
         .select();
@@ -296,7 +298,7 @@ io.on('connection', (socket) => {
 
     io.emit('ticket-called', repeatedTicket);
     io.emit('state-update', queueState);
-    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${repeatedTicket.desk} (callId: ${queueState.callSequence})`);
+    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${desk} (callId: ${queueState.callSequence})`);
   });
 
   socket.on('reset-queue', async () => {

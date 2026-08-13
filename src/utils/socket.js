@@ -61,13 +61,19 @@ export async function callCustomVercel(customNumber, desk, ticketType) {
   }
 }
 
-export async function repeatCallVercel(currentTicket) {
+export async function repeatCallVercel(currentTicket, desk) {
   if (!currentTicket) return;
+  const targetDesk = desk || currentTicket.desk;
   try {
     const res = await fetch('/api/ticket', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'repeat', desk: currentTicket.desk, customNumber: currentTicket.number, ticketType: currentTicket.type })
+      body: JSON.stringify({ 
+        action: 'repeat', 
+        desk: targetDesk, 
+        customNumber: currentTicket.number, 
+        ticketType: currentTicket.type 
+      })
     });
     return await res.json();
   } catch (err) {
