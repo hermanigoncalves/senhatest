@@ -63,6 +63,10 @@ export default function TvPanel() {
       }
 
       setCurrentTicket(ticket);
+      setHistory(prev => {
+        const filtered = prev.filter(t => t.id !== ticket.id && t.number !== ticket.number);
+        return [ticket, ...filtered].slice(0, 10);
+      });
       setIsCalling(true);
       if (callingTimerRef.current) clearTimeout(callingTimerRef.current);
       callingTimerRef.current = setTimeout(() => setIsCalling(false), 4000);
@@ -141,19 +145,19 @@ export default function TvPanel() {
     <div 
       onClick={handleUnlockAudio}
       onTouchStart={handleUnlockAudio}
-      className="min-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative cursor-pointer"
+      className="h-screen max-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative cursor-pointer"
     >
       <audio ref={audioRef} src={chimeDataUri} preload="auto" />
 
       {/* PADRÃO DE CRUZES DECORATIVAS CMIP */}
       <div className="absolute top-6 left-6 grid grid-cols-4 gap-2 opacity-25 pointer-events-none">
         {[...Array(16)].map((_, i) => (
-          <Plus key={i} className="w-6 h-6 text-cmip-400" />
+          <Plus key={i} className="w-5 h-5 text-cmip-400" />
         ))}
       </div>
       <div className="absolute bottom-6 right-6 grid grid-cols-4 gap-2 opacity-25 pointer-events-none">
         {[...Array(16)].map((_, i) => (
-          <Plus key={i} className="w-6 h-6 text-cmip-400" />
+          <Plus key={i} className="w-5 h-5 text-cmip-400" />
         ))}
       </div>
 
@@ -161,50 +165,50 @@ export default function TvPanel() {
       {!audioUnlocked && (
         <div 
           onClick={handleUnlockAudio}
-          className="bg-amber-400 text-slate-950 px-6 py-3 font-black text-center text-sm md:text-base shadow-2xl flex items-center justify-center gap-3 z-50 cursor-pointer animate-pulse uppercase tracking-wider border-b-2 border-amber-600"
+          className="bg-amber-400 text-slate-950 px-6 py-2.5 font-black text-center text-xs md:text-sm shadow-2xl flex items-center justify-center gap-3 z-50 cursor-pointer animate-pulse uppercase tracking-wider border-b-2 border-amber-600 shrink-0"
         >
-          <VolumeX className="w-6 h-6 text-slate-950 animate-bounce" />
+          <VolumeX className="w-5 h-5 text-slate-950 animate-bounce shrink-0" />
           <span>⚠️ ÁUDIO BLOQUEADO DA TV: PRESSIONE QUALQUER BOTÃO NO CONTROLE DA TV OU CLIQUE NA TELA PARA LIBERAR O SOM DAS CHAMADAS!</span>
         </div>
       )}
 
       {/* CABEÇALHO DA TV CMIP */}
-      <header className="px-8 py-5 bg-cmip-900/90 border-b border-cmip-600/30 flex items-center justify-between shadow-2xl backdrop-blur-md relative z-10">
-        <div className="flex items-center gap-5">
-          <div className="bg-white p-3 rounded-2xl shadow-xl border border-cmip-100 max-w-[240px]">
-            <img src="/logo.png" alt="Centro Médico Integrado Piratininga" className="h-12 object-contain" />
+      <header className="px-6 py-4 bg-cmip-900/90 border-b border-cmip-600/30 flex items-center justify-between shadow-2xl backdrop-blur-md relative z-10 shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="bg-white p-2.5 rounded-2xl shadow-xl border border-cmip-100 max-w-[200px]">
+            <img src="/logo.png" alt="Centro Médico Integrado Piratininga" className="h-10 object-contain" />
           </div>
           <div>
-            <h1 className="text-xl md:text-2xl font-black tracking-tight text-white uppercase flex items-center gap-2">
+            <h1 className="text-lg md:text-xl font-black tracking-tight text-white uppercase flex items-center gap-2">
               <span className="text-cmip-400">CMIP</span> PAINEL DA TV
             </h1>
-            <p className="text-xs text-cmip-100 font-bold tracking-wider uppercase">PRATICIDADE E AGILIDADE NO SEU ATENDIMENTO!</p>
+            <p className="text-[11px] text-cmip-100 font-bold tracking-wider uppercase">PRATICIDADE E AGILIDADE NO SEU ATENDIMENTO!</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-6">
           <div className="flex flex-col items-end">
-            <div className="flex items-center gap-2 text-3xl font-extrabold text-white tracking-widest">
-              <Clock className="w-6 h-6 text-cmip-400" />
+            <div className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-white tracking-widest">
+              <Clock className="w-5 h-5 text-cmip-400" />
               <span>{timeStr}</span>
             </div>
-            <span className="text-xs text-cmip-100/70 capitalize">{dateStr}</span>
+            <span className="text-[11px] text-cmip-100/70 capitalize">{dateStr}</span>
           </div>
 
           <div className="flex items-center gap-3">
             <button 
               onClick={toggleFullscreen}
-              className="p-3 bg-cmip-950/80 hover:bg-cmip-800 rounded-xl text-cmip-100 transition-colors border border-cmip-600/40"
+              className="p-2.5 bg-cmip-950/80 hover:bg-cmip-800 rounded-xl text-cmip-100 transition-colors border border-cmip-600/40"
             >
-              <Maximize2 className="w-5 h-5" />
+              <Maximize2 className="w-4 h-4" />
             </button>
 
-            <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
+            <div className={`px-3.5 py-1.5 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
               isConnected 
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40' 
                 : 'bg-rose-950/80 text-rose-300 border-rose-500/40'
             }`}>
-              <Wifi className="w-4 h-4 text-emerald-400 animate-pulse" />
+              <Wifi className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
               <span>ONLINE</span>
             </div>
           </div>
@@ -212,38 +216,38 @@ export default function TvPanel() {
       </header>
 
       {/* ÁREA PRINCIPAL DA TV */}
-      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 p-8 items-stretch relative z-10">
+      <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 p-5 md:p-6 items-stretch relative z-10 min-h-0 overflow-hidden">
         
         {/* DESTAQUE PRINCIPAL DA SENHA ATUAL */}
-        <div className="lg:col-span-8 flex flex-col justify-center">
-          <div className={`h-full min-h-[500px] rounded-3xl p-10 flex flex-col justify-between items-center text-center transition-all duration-500 glass-panel ${
+        <div className="lg:col-span-8 flex flex-col justify-center min-h-0">
+          <div className={`h-full rounded-3xl p-6 lg:p-8 flex flex-col justify-between items-center text-center transition-all duration-500 glass-panel min-h-0 ${
             isCalling 
               ? 'animate-tv-glow border-cmip-400 bg-cmip-900/90 scale-[1.01]' 
               : 'border-cmip-600/30 bg-cmip-900/60 shadow-2xl'
           }`}>
             
-            <div className="w-full flex items-center justify-between">
-              <span className="px-6 py-2 rounded-full text-base font-extrabold uppercase tracking-widest shadow-md bg-cmip-500 text-cmip-950">
+            <div className="w-full flex items-center justify-between shrink-0">
+              <span className="px-5 py-1.5 rounded-full text-xs md:text-sm font-extrabold uppercase tracking-widest shadow-md bg-cmip-500 text-cmip-950">
                 SENHA CMIP
               </span>
 
               {/* EXIBIÇÃO EM DESTAQUE DA HORA DA CHAMADA */}
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-cmip-500/40 bg-cmip-950/80 text-cmip-100 text-xs font-bold shadow-md">
-                <Clock className="w-4 h-4 text-cmip-400" />
+              <div className="flex items-center gap-2 px-3.5 py-1 rounded-full border border-cmip-500/40 bg-cmip-950/80 text-cmip-100 text-xs font-bold shadow-md">
+                <Clock className="w-3.5 h-3.5 text-cmip-400" />
                 <span>Horário da Chamada: <strong className="text-amber-300">{currentTicket ? currentTicket.timestamp : '--:--'}</strong></span>
               </div>
             </div>
 
-            <div className="my-auto py-6">
-              <p className="text-sm md:text-base text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">SENHA ATUAL</p>
-              <div className="text-7xl sm:text-8xl lg:text-9xl xl:text-[11rem] font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)]">
+            <div className="my-auto py-2 flex flex-col items-center justify-center">
+              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.3em] mb-1">SENHA ATUAL</p>
+              <div className="text-6xl sm:text-7xl lg:text-8xl xl:text-9xl font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)]">
                 {currentTicket ? currentTicket.number : '---'}
               </div>
             </div>
 
-            <div className="w-full pt-6 border-t border-cmip-600/30 flex flex-col items-center">
-              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">LOCAL DE ATENDIMENTO</p>
-              <div className="text-4xl sm:text-5xl lg:text-6xl font-black text-amber-300 tracking-wide uppercase drop-shadow-md">
+            <div className="w-full pt-4 border-t border-cmip-600/30 flex flex-col items-center shrink-0">
+              <p className="text-[11px] md:text-xs text-cmip-400 font-bold uppercase tracking-[0.25em] mb-0.5">LOCAL DE ATENDIMENTO</p>
+              <div className="text-3xl sm:text-4xl lg:text-5xl font-black text-amber-300 tracking-wide uppercase drop-shadow-md">
                 {currentTicket ? currentTicket.desk : 'Aguardando...'}
               </div>
             </div>
@@ -252,28 +256,28 @@ export default function TvPanel() {
         </div>
 
         {/* HISTÓRICO DAS ÚLTIMAS SENHAS */}
-        <div className="lg:col-span-4 flex flex-col justify-between">
-          <div className="h-full rounded-3xl p-6 bg-cmip-900/60 border border-cmip-600/30 glass-panel flex flex-col justify-between">
-            <div>
-              <div className="flex items-center justify-between mb-6 pb-4 border-b border-cmip-600/30">
-                <h2 className="text-xl font-bold uppercase tracking-wider text-slate-200">Últimas Chamadas</h2>
-                <span className="text-xs bg-cmip-500 text-cmip-950 px-3 py-1 rounded-full font-extrabold shadow-md">CMIP</span>
+        <div className="lg:col-span-4 flex flex-col justify-between min-h-0">
+          <div className="h-full rounded-3xl p-5 bg-cmip-900/60 border border-cmip-600/30 glass-panel flex flex-col justify-between min-h-0 overflow-hidden">
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-cmip-600/30 shrink-0">
+                <h2 className="text-lg font-bold uppercase tracking-wider text-slate-200">Últimas Chamadas</h2>
+                <span className="text-[11px] bg-cmip-500 text-cmip-950 px-2.5 py-0.5 rounded-full font-extrabold shadow-md">CMIP</span>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-2.5 flex-1 flex flex-col justify-around min-h-0">
                 {history.slice(1, 5).map((item, idx) => (
                   <div 
                     key={item.id || idx}
-                    className="p-5 rounded-2xl bg-cmip-950/80 border border-cmip-600/40 flex items-center justify-between transition-all hover:bg-cmip-900/60"
+                    className="p-3 md:p-3.5 rounded-2xl bg-cmip-950/80 border border-cmip-600/40 flex items-center justify-between transition-all hover:bg-cmip-900/60"
                   >
                     <div>
-                      <div className="text-3xl font-black text-slate-100">{item.number}</div>
-                      <div className="text-sm font-semibold text-amber-300 mt-0.5">{item.desk}</div>
+                      <div className="text-xl md:text-2xl font-black text-slate-100">{item.number}</div>
+                      <div className="text-xs font-semibold text-amber-300 mt-0.5">{item.desk}</div>
                     </div>
                     <div className="text-right">
                       {/* DESTACADA A HORA EM CADA ITEM DO HISTÓRICO */}
-                      <span className="text-xs font-mono font-bold text-cmip-400 bg-cmip-900 px-3 py-1.5 rounded-lg border border-cmip-500/40 flex items-center gap-1">
-                        <Clock className="w-3.5 h-3.5" />
+                      <span className="text-[11px] font-mono font-bold text-cmip-400 bg-cmip-900 px-2.5 py-1 rounded-lg border border-cmip-500/40 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
                         {item.timestamp}
                       </span>
                     </div>
@@ -281,18 +285,18 @@ export default function TvPanel() {
                 ))}
 
                 {history.length <= 1 && (
-                  <div className="py-16 text-center text-cmip-100/50 font-medium">
+                  <div className="py-12 text-center text-cmip-100/50 font-medium text-xs">
                     Nenhuma chamada anterior
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="pt-6 border-t border-cmip-600/30 text-center">
-              <span className="inline-block px-4 py-1.5 bg-cmip-red text-white font-extrabold text-xs uppercase tracking-wider rounded-full shadow-md mb-2">
+            <div className="pt-4 border-t border-cmip-600/30 text-center shrink-0 mt-2">
+              <span className="inline-block px-3 py-1 bg-cmip-red text-white font-extrabold text-[10px] uppercase tracking-wider rounded-full shadow-md mb-1">
                 Agendamento CMIP
               </span>
-              <p className="text-[11px] text-cmip-100/70 font-medium">
+              <p className="text-[10px] text-cmip-100/70 font-medium">
                 Atendimento por ordem de chamada. Mantenha seu documento em mãos.
               </p>
             </div>

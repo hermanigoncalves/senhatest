@@ -146,26 +146,26 @@ export default async function handler(req, res) {
     
     if (action !== 'repeat') {
       memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
+    }
 
-      try {
-        const { data: inserted, error: insertError } = await supabaseAdmin
-          .from('tickets')
-          .insert([{
-            call_id: memoryState.callSequence,
-            number: formattedNumber,
-            raw_number: nextCounter,
-            desk: desk,
-            type: ticketType
-          }])
-          .select();
+    try {
+      const { data: inserted, error: insertError } = await supabaseAdmin
+        .from('tickets')
+        .insert([{
+          call_id: memoryState.callSequence,
+          number: formattedNumber,
+          raw_number: nextCounter,
+          desk: desk,
+          type: ticketType
+        }])
+        .select();
 
-        if (!insertError && inserted && inserted[0]) {
-          newTicket.id = inserted[0].id;
-          newTicket.callId = inserted[0].call_id || memoryState.callSequence;
-        }
-      } catch (err) {
-        console.error('[Supabase Insert Error]', err);
+      if (!insertError && inserted && inserted[0]) {
+        newTicket.id = inserted[0].id;
+        newTicket.callId = inserted[0].call_id || memoryState.callSequence;
       }
+    } catch (err) {
+      console.error('[Supabase Insert Error]', err);
     }
 
     return res.status(200).json({

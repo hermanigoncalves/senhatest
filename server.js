@@ -218,7 +218,7 @@ io.on('connection', (socket) => {
     io.emit('state-update', queueState);
   });
 
-  socket.on('repeat-call', () => {
+  socket.on('repeat-call', async () => {
     if (!queueState.currentTicket) return;
 
     queueState.callSequence += 1;
@@ -231,6 +231,27 @@ io.on('connection', (socket) => {
     };
 
     queueState.currentTicket = repeatedTicket;
+
+    try {
+      const { data: inserted, error: insertErr } = await supabaseAdmin
+        .from('tickets')
+        .insert([{
+          call_id: queueState.callSequence,
+          number: repeatedTicket.number,
+          raw_number: repeatedTicket.rawNumber || queueState.counter,
+          desk: repeatedTicket.desk,
+          type: repeatedTicket.type || 'Normal'
+        }])
+        .select();
+
+      if (!insertErr && inserted && inserted[0]) {
+        repeatedTicket.id = inserted[0].id;
+        repeatedTicket.callId = inserted[0].call_id || queueState.callSequence;
+      }
+    } catch (dbErr) {
+      console.error('[Supabase DB Error em Rechamada]', dbErr.message);
+    }
+
     io.emit('ticket-called', repeatedTicket);
     io.emit('state-update', queueState);
     console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${repeatedTicket.desk} (callId: ${queueState.callSequence})`);
