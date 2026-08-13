@@ -2,6 +2,7 @@ import { sql } from '@vercel/postgres';
 
 let memoryState = {
   counter: 0,
+  callSequence: 0,
   currentTicket: null,
   history: [],
   desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
@@ -36,15 +37,17 @@ export default async function handler(req, res) {
         const { rows } = await sql`SELECT * FROM tickets ORDER BY id DESC LIMIT 10;`;
         const current = rows[0] ? {
           id: rows[0].id,
+          callId: rows[0].call_id || rows[0].id,
           number: rows[0].number,
           rawNumber: rows[0].raw_number,
           desk: rows[0].desk,
           type: rows[0].type,
           timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
-        } : null;
+        } : memoryState.currentTicket;
 
         const history = rows.map(r => ({
           id: r.id,
+          callId: r.call_id || r.id,
           number: r.number,
           rawNumber: r.raw_number,
           desk: r.desk,
@@ -56,6 +59,7 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           counter,
+          callSequence: memoryState.callSequence,
           currentTicket: current,
           history,
           desks: memoryState.desks
@@ -113,9 +117,11 @@ export default async function handler(req, res) {
       formattedNumber = String(nextCounter).padStart(4, '0');
     }
 
+    memoryState.callSequence += 1;
     const nowStr = formatBrasiliaTime();
     const newTicket = {
       id: Date.now(),
+      callId: memoryState.callSequence,
       number: formattedNumber,
       rawNumber: nextCounter,
       desk,
@@ -136,6 +142,7 @@ export default async function handler(req, res) {
         await sql`
           CREATE TABLE IF NOT EXISTS tickets (
             id SERIAL PRIMARY KEY,
+            call_id INT,
             number VARCHAR(20) NOT NULL,
             raw_number INT NOT NULL,
             desk VARCHAR(50) NOT NULL,
@@ -144,8 +151,8 @@ export default async function handler(req, res) {
           );
         `;
         const { rows } = await sql`
-          INSERT INTO tickets (number, raw_number, desk, type)
-          VALUES (${formattedNumber}, ${nextCounter}, ${desk}, ${ticketType})
+          INSERT INTO tickets (call_id, number, raw_number, desk, type)
+          VALUES (${memoryState.callSequence}, ${formattedNumber}, ${nextCounter}, ${desk}, ${ticketType})
           RETURNING id;
         `;
         if (rows[0]) {

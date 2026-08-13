@@ -12,8 +12,9 @@ export default function TvPanel() {
   const [dateStr, setDateStr] = useState('');
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
-  const callingTimerRef = useRef(null);
+  const lastAnnouncedCallIdRef = useRef(0);
   const lastTicketIdRef = useRef(null);
+  const callingTimerRef = useRef(null);
   const audioRef = useRef(null);
 
   const handleUnlockAudio = () => {
@@ -42,20 +43,24 @@ export default function TvPanel() {
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
 
-    const getTicketUniqueKey = (ticket) => {
-      if (!ticket) return '';
-      // Cria uma chave determinística imune a diferenças entre IDs de banco e memória
-      return `${ticket.number}_${ticket.desk}_${ticket.timestamp || ''}_${ticket.isRepeat ? (ticket.id || Date.now()) : 'normal'}`;
-    };
-
     const handleNewTicketCall = (ticket) => {
       if (!ticket) return;
 
-      const key = getTicketUniqueKey(ticket);
-      if (key && key === lastTicketIdRef.current) {
+      const callId = ticket.callId || (typeof ticket.id === 'number' && ticket.id < 1000000000000 ? ticket.id : 0);
+
+      // Trava de Ouro: A TV só toca som se houver um callId estritamente MAIOR que o já anunciado
+      if (callId > 0 && callId <= lastAnnouncedCallIdRef.current) {
+        setCurrentTicket(ticket);
         return;
       }
-      lastTicketIdRef.current = key;
+
+      if (callId > 0) {
+        lastAnnouncedCallIdRef.current = callId;
+      } else {
+        const fallbackKey = `${ticket.number}_${ticket.desk}_${ticket.timestamp}_${ticket.isRepeat ? Date.now() : ''}`;
+        if (fallbackKey === lastTicketIdRef.current) return;
+        lastTicketIdRef.current = fallbackKey;
+      }
 
       setCurrentTicket(ticket);
       setIsCalling(true);
@@ -71,8 +76,9 @@ export default function TvPanel() {
     function onStateUpdate(state) {
       if (state?.currentTicket) {
         setCurrentTicket(state.currentTicket);
-        if (!lastTicketIdRef.current) {
-          lastTicketIdRef.current = getTicketUniqueKey(state.currentTicket);
+        // Ao carregar o painel, registra o callId atual para NUNCA tocar áudio de senhas velhas
+        if (lastAnnouncedCallIdRef.current === 0 && state.currentTicket.callId) {
+          lastAnnouncedCallIdRef.current = state.currentTicket.callId;
         }
       }
       if (state?.history) setHistory(state.history);
@@ -80,11 +86,18 @@ export default function TvPanel() {
     function onTicketCalled(ticket) {
       handleNewTicketCall(ticket);
     }
+    function onQueueReset() {
+      lastAnnouncedCallIdRef.current = 0;
+      lastTicketIdRef.current = null;
+      setCurrentTicket(null);
+      setHistory([]);
+    }
 
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('state-update', onStateUpdate);
     socket.on('ticket-called', onTicketCalled);
+    socket.on('queue-reset', onQueueReset);
 
     if (socket.connected) socket.emit('get-state');
 
@@ -94,12 +107,7 @@ export default function TvPanel() {
         setIsConnected(true);
         if (state.history) setHistory(state.history);
         if (state.currentTicket) {
-          const key = getTicketUniqueKey(state.currentTicket);
-          if (key && key !== lastTicketIdRef.current) {
-            handleNewTicketCall(state.currentTicket);
-          } else {
-            setCurrentTicket(state.currentTicket);
-          }
+          handleNewTicketCall(state.currentTicket);
         }
       }
     }, 400);

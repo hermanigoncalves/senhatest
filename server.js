@@ -31,6 +31,7 @@ if (process.env.POSTGRES_URL) {
 // Estado da Fila em Memória / Cache
 let queueState = {
   counter: 0,
+  callSequence: 0,
   currentTicket: null,
   history: [],
   desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
@@ -50,6 +51,7 @@ async function initDatabase() {
     await sql`
       CREATE TABLE IF NOT EXISTS tickets (
         id SERIAL PRIMARY KEY,
+        call_id INT,
         number VARCHAR(20) NOT NULL,
         raw_number INT NOT NULL,
         desk VARCHAR(50) NOT NULL,
@@ -58,6 +60,32 @@ async function initDatabase() {
       );
     `;
     console.log('[Vercel Postgres] Tabela "tickets" pronta no banco Vercel!');
+
+    // Restaura o contador e o estado mais recente do banco ao iniciar o servidor
+    const { rows } = await sql`SELECT * FROM tickets ORDER BY id DESC LIMIT 10;`;
+    if (rows && rows.length > 0) {
+      queueState.counter = rows[0].raw_number || 0;
+      queueState.callSequence = rows[0].call_id || rows[0].id || 0;
+      queueState.currentTicket = {
+        id: rows[0].id,
+        callId: rows[0].call_id || rows[0].id,
+        number: rows[0].number,
+        rawNumber: rows[0].raw_number,
+        desk: rows[0].desk,
+        type: rows[0].type,
+        timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
+      };
+      queueState.history = rows.map(r => ({
+        id: r.id,
+        callId: r.call_id || r.id,
+        number: r.number,
+        rawNumber: r.raw_number,
+        desk: r.desk,
+        type: r.type,
+        timestamp: formatBrasiliaTime(new Date(r.created_at))
+      }));
+      console.log(`[Contador Restaurado] Última senha do banco: ${queueState.currentTicket.number} (callId: ${queueState.callSequence})`);
+    }
   } catch (err) {
     console.error('[Vercel Postgres Error]', err.message);
   }
@@ -118,11 +146,13 @@ io.on('connection', (socket) => {
       queueState.counter += 1;
     }
 
+    queueState.callSequence += 1;
     const formattedNumber = String(queueState.counter).padStart(4, '0');
     const nowStr = formatBrasiliaTime();
 
     const newTicket = {
       id: Date.now(),
+      callId: queueState.callSequence,
       number: formattedNumber,
       rawNumber: queueState.counter,
       desk: desk,
@@ -135,10 +165,14 @@ io.on('connection', (socket) => {
 
     if (sql && process.env.POSTGRES_URL) {
       try {
-        await sql`
-          INSERT INTO tickets (number, raw_number, desk, type)
-          VALUES (${formattedNumber}, ${queueState.counter}, ${desk}, 'Normal');
+        const { rows } = await sql`
+          INSERT INTO tickets (call_id, number, raw_number, desk, type)
+          VALUES (${queueState.callSequence}, ${formattedNumber}, ${queueState.counter}, ${desk}, 'Normal')
+          RETURNING id;
         `;
+        if (rows[0]) {
+          newTicket.id = rows[0].id;
+        }
       } catch (dbErr) {
         console.error('[Vercel DB Error]', dbErr.message);
       }
@@ -146,7 +180,7 @@ io.on('connection', (socket) => {
 
     io.emit('ticket-called', newTicket);
     io.emit('state-update', queueState);
-    console.log(`[Chamada CMIP] Senha ${formattedNumber} chamada para ${desk}`);
+    console.log(`[Chamada CMIP] Senha ${formattedNumber} chamada para ${desk} (callId: ${queueState.callSequence})`);
   });
 
   socket.on('call-custom', async (data) => {
@@ -160,8 +194,10 @@ io.on('connection', (socket) => {
       formattedNumber = String(parseInt(formattedNumber, 10)).padStart(4, '0');
     }
 
+    queueState.callSequence += 1;
     const newTicket = {
       id: Date.now(),
+      callId: queueState.callSequence,
       number: formattedNumber,
       desk: desk,
       timestamp: nowStr,
@@ -173,10 +209,14 @@ io.on('connection', (socket) => {
 
     if (sql && process.env.POSTGRES_URL) {
       try {
-        await sql`
-          INSERT INTO tickets (number, raw_number, desk, type)
-          VALUES (${formattedNumber}, 0, ${desk}, 'Normal');
+        const { rows } = await sql`
+          INSERT INTO tickets (call_id, number, raw_number, desk, type)
+          VALUES (${queueState.callSequence}, ${formattedNumber}, 0, ${desk}, 'Normal')
+          RETURNING id;
         `;
+        if (rows[0]) {
+          newTicket.id = rows[0].id;
+        }
       } catch (dbErr) {
         console.error('[Vercel DB Error]', dbErr.message);
       }
@@ -189,9 +229,11 @@ io.on('connection', (socket) => {
   socket.on('repeat-call', () => {
     if (!queueState.currentTicket) return;
 
+    queueState.callSequence += 1;
     const repeatedTicket = {
       ...queueState.currentTicket,
       id: Date.now(),
+      callId: queueState.callSequence,
       isRepeat: true,
       timestamp: formatBrasiliaTime()
     };
@@ -199,16 +241,26 @@ io.on('connection', (socket) => {
     queueState.currentTicket = repeatedTicket;
     io.emit('ticket-called', repeatedTicket);
     io.emit('state-update', queueState);
-    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${repeatedTicket.desk}`);
+    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${repeatedTicket.desk} (callId: ${queueState.callSequence})`);
   });
 
-  socket.on('reset-queue', () => {
+  socket.on('reset-queue', async () => {
     queueState.counter = 0;
+    queueState.callSequence = 0;
     queueState.currentTicket = null;
     queueState.history = [];
+
+    if (sql && process.env.POSTGRES_URL) {
+      try {
+        await sql`TRUNCATE TABLE tickets;`;
+      } catch (dbErr) {
+        console.error('[Vercel DB Truncate Error]', dbErr.message);
+      }
+    }
+
     io.emit('queue-reset');
     io.emit('state-update', queueState);
-    console.log(`[Fila CMIP] Fila zerada por atendente.`);
+    console.log(`[Fila CMIP] Fila zerada por atendente no banco e memória.`);
   });
 });
 
