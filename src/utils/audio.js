@@ -146,7 +146,13 @@ export function warmupAudio() {
 
 export function playChimeSound() {
   return new Promise((resolve) => {
-    let played = false;
+    let resolved = false;
+    const safeResolve = () => {
+      if (!resolved) {
+        resolved = true;
+        resolve();
+      }
+    };
 
     try {
       if (!chimeAudioElement) {
@@ -158,8 +164,7 @@ export function playChimeSound() {
       const playPromise = chimeAudioElement.play();
       if (playPromise !== undefined) {
         playPromise.then(() => {
-          played = true;
-          setTimeout(resolve, 1100);
+          setTimeout(safeResolve, 650);
         }).catch(() => {});
       }
     } catch (e) {}
@@ -179,32 +184,30 @@ export function playChimeSound() {
           osc1.frequency.setValueAtTime(783.99, now);
           gain1.gain.setValueAtTime(0, now);
           gain1.gain.linearRampToValueAtTime(0.8, now + 0.04);
-          gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+          gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
           osc1.connect(gain1);
           gain1.connect(ctx.destination);
           osc1.start(now);
-          osc1.stop(now + 0.7);
+          osc1.stop(now + 0.45);
 
           const osc2 = ctx.createOscillator();
           const gain2 = ctx.createGain();
           osc2.type = 'sine';
-          osc2.frequency.setValueAtTime(659.25, now + 0.3);
-          gain2.gain.setValueAtTime(0, now + 0.3);
-          gain2.gain.linearRampToValueAtTime(0.9, now + 0.35);
-          gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.3);
+          osc2.frequency.setValueAtTime(659.25, now + 0.25);
+          gain2.gain.setValueAtTime(0, now + 0.25);
+          gain2.gain.linearRampToValueAtTime(0.9, now + 0.28);
+          gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
           osc2.connect(gain2);
           gain2.connect(ctx.destination);
-          osc2.start(now + 0.3);
-          osc2.stop(now + 1.3);
+          osc2.start(now + 0.25);
+          osc2.stop(now + 0.65);
 
-          if (!played) {
-            setTimeout(resolve, 1100);
-          }
+          setTimeout(safeResolve, 650);
         }
       }
     } catch (e) {}
 
-    setTimeout(resolve, 1200);
+    setTimeout(safeResolve, 700);
   });
 }
 
@@ -339,7 +342,6 @@ export function speakTicket(number, desk) {
 export async function announceTicket(number, desk) {
   unlockAudio();
   await playChimeSound();
-  await new Promise(r => setTimeout(r, 250));
   await speakTicket(number, desk);
 }
 
