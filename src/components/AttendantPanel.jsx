@@ -4,8 +4,7 @@ import {
   callCustomVercel, repeatCallVercel, resetQueueVercel 
 } from '../utils/socket';
 import { 
-  Play, RotateCcw, Hash, Users, Monitor, 
-  Trash2, ShieldAlert, ExternalLink, Copy, Check, Plus
+  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus
 } from 'lucide-react';
 
 export default function AttendantPanel() {
@@ -18,7 +17,6 @@ export default function AttendantPanel() {
 
   const [selectedDesk, setSelectedDesk] = useState('Guichê 01');
   const [customNumber, setCustomNumber] = useState('');
-  const [copiedIp, setCopiedIp] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
 
   const isVercelHost = window.location.hostname.includes('vercel.app');
@@ -95,13 +93,6 @@ export default function AttendantPanel() {
     setShowResetModal(false);
   };
 
-  const copyTvLink = () => {
-    const link = `${window.location.origin}/tv`;
-    navigator.clipboard.writeText(link);
-    setCopiedIp(true);
-    setTimeout(() => setCopiedIp(false), 2000);
-  };
-
   return (
     <div className="min-h-screen bg-cmip-950 text-slate-100 font-['Montserrat',sans-serif] p-4 md:p-8 cmip-plus-pattern relative">
       
@@ -127,43 +118,7 @@ export default function AttendantPanel() {
               <p className="text-xs text-cmip-100 font-semibold tracking-wider uppercase">Centro Médico Integrado Piratininga</p>
             </div>
           </div>
-
-          <div className="flex items-center gap-3">
-            <a 
-              href="/tv" 
-              target="_blank" 
-              rel="noreferrer"
-              className="px-5 py-3 bg-cmip-600 hover:bg-cmip-500 text-white rounded-2xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg shadow-cmip-600/30"
-            >
-              <Monitor className="w-4 h-4 text-white" />
-              <span>Abrir Painel da TV</span>
-              <ExternalLink className="w-3.5 h-3.5 opacity-80" />
-            </a>
-          </div>
         </header>
-
-        {/* LINK DA TV */}
-        <div className="p-5 bg-cmip-900/60 border border-cmip-500/40 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 glass-panel">
-          <div className="flex items-start gap-3">
-            <Monitor className="w-6 h-6 text-cmip-400 shrink-0 mt-1" />
-            <div>
-              <h3 className="font-bold text-cmip-100 text-sm">Endereço para abrir na TV / Chrome:</h3>
-              <div className="mt-1.5">
-                <code className="px-3 py-1 bg-cmip-950/80 border border-cmip-500/50 rounded-lg text-cmip-400 font-mono text-sm font-bold">
-                  {window.location.origin}/tv
-                </code>
-              </div>
-            </div>
-          </div>
-
-          <button
-            onClick={copyTvLink}
-            className="px-4 py-2 bg-cmip-red hover:bg-cmip-red-hover text-white rounded-xl font-bold text-xs flex items-center gap-2 transition-colors shrink-0 shadow-md"
-          >
-            {copiedIp ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            <span>{copiedIp ? 'Copiado!' : 'Copiar Link da TV'}</span>
-          </button>
-        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
@@ -194,7 +149,6 @@ export default function AttendantPanel() {
             {/* BOTÃO PRINCIPAL CHAMAR PRÓXIMA */}
             <div className="p-8 bg-gradient-to-br from-cmip-800/80 via-cmip-900/90 to-cmip-950 border border-cmip-500/40 rounded-3xl glass-panel text-center space-y-6 relative overflow-hidden">
               
-              {/* ONDA DECORATIVA CMIP VERDE */}
               <div className="absolute -bottom-10 -right-10 w-48 h-48 bg-cmip-500/10 rounded-full blur-2xl pointer-events-none" />
 
               <div>
