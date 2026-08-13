@@ -114,6 +114,7 @@ io.on('connection', (socket) => {
     const num = parseInt(data.number, 10);
     if (!isNaN(num) && num >= 1 && num <= 1000) {
       queueState.counter = num - 1;
+      queueState.callSequence += 1;
       try {
         if (num === 1) {
           await supabaseAdmin.from('tickets').delete().neq('id', -1);

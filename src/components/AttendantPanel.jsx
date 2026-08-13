@@ -110,6 +110,7 @@ export default function AttendantPanel() {
       updateState(state || { counter: 0, currentTicket: null, history: [], desks: queueState.desks });
     } else {
       socket.emit('reset-queue');
+      updateState({ counter: 0, currentTicket: null, history: [], desks: queueState.desks });
     }
     setShowResetModal(false);
   };

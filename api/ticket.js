@@ -99,6 +99,7 @@ export default async function handler(req, res) {
       const num = parseInt(initialNumber, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
         memoryState.counter = num - 1;
+        memoryState.callSequence += 1;
 
         try {
           if (num === 1) {
