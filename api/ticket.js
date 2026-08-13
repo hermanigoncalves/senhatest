@@ -143,10 +143,14 @@ export default async function handler(req, res) {
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           );
         `;
-        await sql`
+        const { rows } = await sql`
           INSERT INTO tickets (number, raw_number, desk, type)
-          VALUES (${formattedNumber}, ${nextCounter}, ${desk}, ${ticketType});
+          VALUES (${formattedNumber}, ${nextCounter}, ${desk}, ${ticketType})
+          RETURNING id;
         `;
+        if (rows[0]) {
+          newTicket.id = rows[0].id;
+        }
       } catch (err) {
         console.error('[DB Insert Error]', err);
       }

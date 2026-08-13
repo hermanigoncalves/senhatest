@@ -42,13 +42,20 @@ export default function TvPanel() {
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
 
+    const getTicketUniqueKey = (ticket) => {
+      if (!ticket) return '';
+      // Cria uma chave determinística imune a diferenças entre IDs de banco e memória
+      return `${ticket.number}_${ticket.desk}_${ticket.timestamp || ''}_${ticket.isRepeat ? (ticket.id || Date.now()) : 'normal'}`;
+    };
+
     const handleNewTicketCall = (ticket) => {
       if (!ticket) return;
 
-      if (ticket.id === lastTicketIdRef.current && !ticket.isRepeat) {
+      const key = getTicketUniqueKey(ticket);
+      if (key && key === lastTicketIdRef.current) {
         return;
       }
-      lastTicketIdRef.current = ticket.id;
+      lastTicketIdRef.current = key;
 
       setCurrentTicket(ticket);
       setIsCalling(true);
@@ -64,7 +71,9 @@ export default function TvPanel() {
     function onStateUpdate(state) {
       if (state?.currentTicket) {
         setCurrentTicket(state.currentTicket);
-        lastTicketIdRef.current = state.currentTicket.id;
+        if (!lastTicketIdRef.current) {
+          lastTicketIdRef.current = getTicketUniqueKey(state.currentTicket);
+        }
       }
       if (state?.history) setHistory(state.history);
     }
@@ -85,14 +94,15 @@ export default function TvPanel() {
         setIsConnected(true);
         if (state.history) setHistory(state.history);
         if (state.currentTicket) {
-          if (state.currentTicket.id !== lastTicketIdRef.current) {
+          const key = getTicketUniqueKey(state.currentTicket);
+          if (key && key !== lastTicketIdRef.current) {
             handleNewTicketCall(state.currentTicket);
           } else {
             setCurrentTicket(state.currentTicket);
           }
         }
       }
-    }, 300);
+    }, 400);
 
     const events = ['click', 'touchstart', 'keydown', 'keyup', 'pointerdown', 'focus'];
     const globalUnlock = () => {
