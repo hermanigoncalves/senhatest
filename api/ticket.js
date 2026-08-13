@@ -1,4 +1,4 @@
-import { sql } from '@vercel/postgres';
+import { supabase, supabaseAdmin } from '../src/utils/supabaseClient.js';
 
 let memoryState = {
   counter: 0,
@@ -22,7 +22,6 @@ export default async function handler(req, res) {
     return;
   }
 
-  // Função auxiliar para formatar hora estritamente no fuso de Brasília (UTC-3)
   const formatBrasiliaTime = (dateObj = new Date()) => {
     return dateObj.toLocaleTimeString('pt-BR', {
       timeZone: 'America/Sao_Paulo',
@@ -32,10 +31,15 @@ export default async function handler(req, res) {
   };
 
   if (req.method === 'GET') {
-    if (process.env.POSTGRES_URL) {
-      try {
-        const { rows } = await sql`SELECT * FROM tickets ORDER BY id DESC LIMIT 10;`;
-        const current = rows[0] ? {
+    try {
+      const { data: rows, error } = await supabase
+        .from('tickets')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(10);
+
+      if (!error && rows && rows.length > 0) {
+        const current = {
           id: rows[0].id,
           callId: rows[0].call_id || rows[0].id,
           number: rows[0].number,
@@ -43,7 +47,7 @@ export default async function handler(req, res) {
           desk: rows[0].desk,
           type: rows[0].type,
           timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
-        } : memoryState.currentTicket;
+        };
 
         const history = rows.map(r => ({
           id: r.id,
@@ -55,18 +59,24 @@ export default async function handler(req, res) {
           timestamp: formatBrasiliaTime(new Date(r.created_at))
         }));
 
-        const counter = rows[0] ? rows[0].raw_number : memoryState.counter;
+        const counter = rows[0].raw_number || memoryState.counter;
+        const callSequence = rows[0].call_id || memoryState.callSequence;
+
+        memoryState.counter = counter;
+        memoryState.callSequence = callSequence;
+        memoryState.currentTicket = current;
+        memoryState.history = history;
 
         return res.status(200).json({
           counter,
-          callSequence: memoryState.callSequence,
+          callSequence,
           currentTicket: current,
           history,
           desks: memoryState.desks
         });
-      } catch (err) {
-        console.error('[Vercel DB Error]', err);
       }
+    } catch (err) {
+      console.error('[Supabase GET Error]', err);
     }
     return res.status(200).json(memoryState);
   }
@@ -103,15 +113,16 @@ export default async function handler(req, res) {
       }
       nextCounter = memoryState.counter;
     } else {
-      if (process.env.POSTGRES_URL) {
-        try {
-          const { rows } = await sql`SELECT raw_number FROM tickets ORDER BY id DESC LIMIT 1;`;
-          const lastNum = rows[0] ? rows[0].raw_number : memoryState.counter;
-          nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
-        } catch (e) {
-          nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;
-        }
-      } else {
+      try {
+        const { data: lastRows } = await supabase
+          .from('tickets')
+          .select('raw_number')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        const lastNum = lastRows && lastRows[0] ? lastRows[0].raw_number : memoryState.counter;
+        nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
+      } catch (e) {
         nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;
       }
       formattedNumber = String(nextCounter).padStart(4, '0');
@@ -135,31 +146,25 @@ export default async function handler(req, res) {
     
     if (action !== 'repeat') {
       memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
-    }
 
-    if (process.env.POSTGRES_URL && action !== 'repeat') {
       try {
-        await sql`
-          CREATE TABLE IF NOT EXISTS tickets (
-            id SERIAL PRIMARY KEY,
-            call_id INT,
-            number VARCHAR(20) NOT NULL,
-            raw_number INT NOT NULL,
-            desk VARCHAR(50) NOT NULL,
-            type VARCHAR(20) DEFAULT 'Normal',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-          );
-        `;
-        const { rows } = await sql`
-          INSERT INTO tickets (call_id, number, raw_number, desk, type)
-          VALUES (${memoryState.callSequence}, ${formattedNumber}, ${nextCounter}, ${desk}, ${ticketType})
-          RETURNING id;
-        `;
-        if (rows[0]) {
-          newTicket.id = rows[0].id;
+        const { data: inserted, error: insertError } = await supabaseAdmin
+          .from('tickets')
+          .insert([{
+            call_id: memoryState.callSequence,
+            number: formattedNumber,
+            raw_number: nextCounter,
+            desk: desk,
+            type: ticketType
+          }])
+          .select();
+
+        if (!insertError && inserted && inserted[0]) {
+          newTicket.id = inserted[0].id;
+          newTicket.callId = inserted[0].call_id || memoryState.callSequence;
         }
       } catch (err) {
-        console.error('[DB Insert Error]', err);
+        console.error('[Supabase Insert Error]', err);
       }
     }
 

@@ -4,6 +4,7 @@ import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
+import { supabase, supabaseAdmin } from './src/utils/supabaseClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,17 +17,6 @@ const io = new Server(httpServer, {
     methods: ['GET', 'POST']
   }
 });
-
-let sql = null;
-if (process.env.POSTGRES_URL) {
-  try {
-    const postgresModule = await import('@vercel/postgres');
-    sql = postgresModule.sql;
-    console.log('[Postgres] Módulo @vercel/postgres carregado com sucesso.');
-  } catch (e) {
-    console.log('[Postgres] Executando em memória local.');
-  }
-}
 
 // Estado da Fila em Memória / Cache
 let queueState = {
@@ -46,24 +36,14 @@ const formatBrasiliaTime = (dateObj = new Date()) => {
 };
 
 async function initDatabase() {
-  if (!sql || !process.env.POSTGRES_URL) return;
   try {
-    await sql`
-      CREATE TABLE IF NOT EXISTS tickets (
-        id SERIAL PRIMARY KEY,
-        call_id INT,
-        number VARCHAR(20) NOT NULL,
-        raw_number INT NOT NULL,
-        desk VARCHAR(50) NOT NULL,
-        type VARCHAR(20) DEFAULT 'Normal',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `;
-    console.log('[Vercel Postgres] Tabela "tickets" pronta no banco Vercel!');
+    const { data: rows, error } = await supabase
+      .from('tickets')
+      .select('*')
+      .order('id', { ascending: false })
+      .limit(10);
 
-    // Restaura o contador e o estado mais recente do banco ao iniciar o servidor
-    const { rows } = await sql`SELECT * FROM tickets ORDER BY id DESC LIMIT 10;`;
-    if (rows && rows.length > 0) {
+    if (!error && rows && rows.length > 0) {
       queueState.counter = rows[0].raw_number || 0;
       queueState.callSequence = rows[0].call_id || rows[0].id || 0;
       queueState.currentTicket = {
@@ -84,10 +64,12 @@ async function initDatabase() {
         type: r.type,
         timestamp: formatBrasiliaTime(new Date(r.created_at))
       }));
-      console.log(`[Contador Restaurado] Última senha do banco: ${queueState.currentTicket.number} (callId: ${queueState.callSequence})`);
+      console.log(`[Supabase Conectado] Última senha do banco: ${queueState.currentTicket.number} (callId: ${queueState.callSequence})`);
+    } else {
+      console.log('[Supabase Ready] Tabela pronta ou sem senhas gravadas ainda.');
     }
   } catch (err) {
-    console.error('[Vercel Postgres Error]', err.message);
+    console.error('[Supabase Init Error]', err.message);
   }
 }
 
@@ -163,19 +145,24 @@ io.on('connection', (socket) => {
     queueState.currentTicket = newTicket;
     queueState.history = [newTicket, ...queueState.history.slice(0, 9)];
 
-    if (sql && process.env.POSTGRES_URL) {
-      try {
-        const { rows } = await sql`
-          INSERT INTO tickets (call_id, number, raw_number, desk, type)
-          VALUES (${queueState.callSequence}, ${formattedNumber}, ${queueState.counter}, ${desk}, 'Normal')
-          RETURNING id;
-        `;
-        if (rows[0]) {
-          newTicket.id = rows[0].id;
-        }
-      } catch (dbErr) {
-        console.error('[Vercel DB Error]', dbErr.message);
+    try {
+      const { data: inserted, error: insertErr } = await supabaseAdmin
+        .from('tickets')
+        .insert([{
+          call_id: queueState.callSequence,
+          number: formattedNumber,
+          raw_number: queueState.counter,
+          desk: desk,
+          type: 'Normal'
+        }])
+        .select();
+
+      if (!insertErr && inserted && inserted[0]) {
+        newTicket.id = inserted[0].id;
+        newTicket.callId = inserted[0].call_id || queueState.callSequence;
       }
+    } catch (dbErr) {
+      console.error('[Supabase DB Error]', dbErr.message);
     }
 
     io.emit('ticket-called', newTicket);
@@ -207,19 +194,24 @@ io.on('connection', (socket) => {
     queueState.currentTicket = newTicket;
     queueState.history = [newTicket, ...queueState.history.slice(0, 9)];
 
-    if (sql && process.env.POSTGRES_URL) {
-      try {
-        const { rows } = await sql`
-          INSERT INTO tickets (call_id, number, raw_number, desk, type)
-          VALUES (${queueState.callSequence}, ${formattedNumber}, 0, ${desk}, 'Normal')
-          RETURNING id;
-        `;
-        if (rows[0]) {
-          newTicket.id = rows[0].id;
-        }
-      } catch (dbErr) {
-        console.error('[Vercel DB Error]', dbErr.message);
+    try {
+      const { data: inserted, error: insertErr } = await supabaseAdmin
+        .from('tickets')
+        .insert([{
+          call_id: queueState.callSequence,
+          number: formattedNumber,
+          raw_number: 0,
+          desk: desk,
+          type: 'Normal'
+        }])
+        .select();
+
+      if (!insertErr && inserted && inserted[0]) {
+        newTicket.id = inserted[0].id;
+        newTicket.callId = inserted[0].call_id || queueState.callSequence;
       }
+    } catch (dbErr) {
+      console.error('[Supabase DB Error]', dbErr.message);
     }
 
     io.emit('ticket-called', newTicket);
@@ -250,17 +242,15 @@ io.on('connection', (socket) => {
     queueState.currentTicket = null;
     queueState.history = [];
 
-    if (sql && process.env.POSTGRES_URL) {
-      try {
-        await sql`TRUNCATE TABLE tickets;`;
-      } catch (dbErr) {
-        console.error('[Vercel DB Truncate Error]', dbErr.message);
-      }
+    try {
+      await supabaseAdmin.from('tickets').delete().gte('id', 0);
+    } catch (dbErr) {
+      console.error('[Supabase Delete Error]', dbErr.message);
     }
 
     io.emit('queue-reset');
     io.emit('state-update', queueState);
-    console.log(`[Fila CMIP] Fila zerada por atendente no banco e memória.`);
+    console.log(`[Fila CMIP] Fila zerada por atendente no Supabase e memória.`);
   });
 });
 
