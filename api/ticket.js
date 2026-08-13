@@ -104,6 +104,19 @@ export default async function handler(req, res) {
       const num = parseInt(initialNumber, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
         memoryState.counter = num - 1;
+
+        try {
+          if (num === 1) {
+            await supabaseAdmin.from('tickets').delete().neq('id', -1);
+            memoryState.currentTicket = null;
+            memoryState.history = [];
+          } else {
+            await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
+          }
+        } catch (e) {
+          console.error('[Supabase Delete Higher Tickets Error]', e);
+        }
+
         return res.status(200).json({
           success: true,
           message: `Próxima senha iniciará em ${String(num).padStart(4, '0')}`,

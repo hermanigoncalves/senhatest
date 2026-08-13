@@ -110,10 +110,21 @@ io.on('connection', (socket) => {
   console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
   socket.emit('state-update', queueState);
 
-  socket.on('set-initial-ticket', (data) => {
+  socket.on('set-initial-ticket', async (data) => {
     const num = parseInt(data.number, 10);
     if (!isNaN(num) && num >= 1 && num <= 1000) {
       queueState.counter = num - 1;
+      try {
+        if (num === 1) {
+          await supabaseAdmin.from('tickets').delete().neq('id', -1);
+          queueState.currentTicket = null;
+          queueState.history = [];
+        } else {
+          await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
+        }
+      } catch (dbErr) {
+        console.error('[Supabase Delete Higher Error]', dbErr.message);
+      }
       io.emit('state-update', queueState);
       console.log(`[Contador CMIP] Senha inicial definida para começar em: ${num}`);
     }
