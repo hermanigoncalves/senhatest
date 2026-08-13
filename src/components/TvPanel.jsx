@@ -48,6 +48,11 @@ export default function TvPanel() {
 
       const callId = ticket.callId || (typeof ticket.id === 'number' && ticket.id < 1000000000000 ? ticket.id : 0);
 
+      // Se a contagem de senhas foi redefinida para um número menor ou zerada, libera a trava do anúncio automaticamente
+      if (callId > 0 && lastAnnouncedCallIdRef.current > 0 && (callId < lastAnnouncedCallIdRef.current || ticket.rawNumber < lastAnnouncedCallIdRef.current - 20)) {
+        lastAnnouncedCallIdRef.current = 0;
+      }
+
       // Trava de Ouro: A TV só toca som se houver um callId estritamente MAIOR que o já anunciado
       if (callId > 0 && callId <= lastAnnouncedCallIdRef.current) {
         setCurrentTicket(ticket);
@@ -78,14 +83,23 @@ export default function TvPanel() {
     function onConnect() { setIsConnected(true); }
     function onDisconnect() { setIsConnected(false); }
     function onStateUpdate(state) {
-      if (state?.currentTicket) {
+      if (!state) return;
+
+      // Se a fila foi zerada pelo painel do atendente, libera a trava de anúncio sonoro
+      if (!state.currentTicket || state.counter === 0) {
+        lastAnnouncedCallIdRef.current = 0;
+        lastTicketIdRef.current = null;
+      }
+
+      if (state.currentTicket) {
         setCurrentTicket(state.currentTicket);
-        // Ao carregar o painel, registra o callId atual para NUNCA tocar áudio de senhas velhas
         if (lastAnnouncedCallIdRef.current === 0 && state.currentTicket.callId) {
           lastAnnouncedCallIdRef.current = state.currentTicket.callId;
         }
+      } else {
+        setCurrentTicket(null);
       }
-      if (state?.history) setHistory(state.history);
+      if (state.history) setHistory(state.history);
     }
     function onTicketCalled(ticket) {
       handleNewTicketCall(ticket);
