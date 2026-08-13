@@ -121,6 +121,36 @@ io.on('connection', (socket) => {
           queueState.history = [];
         } else {
           await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
+
+          const { data: remaining } = await supabase
+            .from('tickets')
+            .select('*')
+            .order('id', { ascending: false })
+            .limit(10);
+
+          if (remaining && remaining.length > 0) {
+            queueState.currentTicket = {
+              id: remaining[0].id,
+              callId: remaining[0].call_id || remaining[0].id,
+              number: remaining[0].number,
+              rawNumber: remaining[0].raw_number,
+              desk: remaining[0].desk,
+              type: remaining[0].type,
+              timestamp: formatBrasiliaTime(new Date(remaining[0].created_at))
+            };
+            queueState.history = remaining.map(r => ({
+              id: r.id,
+              callId: r.call_id || r.id,
+              number: r.number,
+              rawNumber: r.raw_number,
+              desk: r.desk,
+              type: r.type,
+              timestamp: formatBrasiliaTime(new Date(r.created_at))
+            }));
+          } else {
+            queueState.currentTicket = null;
+            queueState.history = [];
+          }
         }
       } catch (dbErr) {
         console.error('[Supabase Delete Higher Error]', dbErr.message);

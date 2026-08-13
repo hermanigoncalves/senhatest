@@ -76,17 +76,12 @@ export default async function handler(req, res) {
             desks: memoryState.desks
           });
         } else {
-          // Quando a tabela no Supabase estiver vazia (fila zerada), zera a memória local e retorna zerado
-          memoryState.counter = 0;
-          memoryState.callSequence = 0;
-          memoryState.currentTicket = null;
-          memoryState.history = [];
-
+          // Se o banco estiver sem registros (ou registros deletados por reset/senha inicial), preserva a senha inicial definida em memória
           return res.status(200).json({
-            counter: 0,
-            callSequence: 0,
-            currentTicket: null,
-            history: [],
+            counter: memoryState.counter,
+            callSequence: memoryState.callSequence,
+            currentTicket: memoryState.currentTicket,
+            history: memoryState.history,
             desks: memoryState.desks
           });
         }
@@ -112,6 +107,36 @@ export default async function handler(req, res) {
             memoryState.history = [];
           } else {
             await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
+
+            const { data: remaining } = await supabase
+              .from('tickets')
+              .select('*')
+              .order('id', { ascending: false })
+              .limit(10);
+
+            if (remaining && remaining.length > 0) {
+              memoryState.currentTicket = {
+                id: remaining[0].id,
+                callId: remaining[0].call_id || remaining[0].id,
+                number: remaining[0].number,
+                rawNumber: remaining[0].raw_number,
+                desk: remaining[0].desk,
+                type: remaining[0].type,
+                timestamp: formatBrasiliaTime(new Date(remaining[0].created_at))
+              };
+              memoryState.history = remaining.map(r => ({
+                id: r.id,
+                callId: r.call_id || r.id,
+                number: r.number,
+                rawNumber: r.raw_number,
+                desk: r.desk,
+                type: r.type,
+                timestamp: formatBrasiliaTime(new Date(r.created_at))
+              }));
+            } else {
+              memoryState.currentTicket = null;
+              memoryState.history = [];
+            }
           }
         } catch (e) {
           console.error('[Supabase Delete Higher Tickets Error]', e);
