@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket, fetchVercelState } from '../utils/socket';
-import { announceTicket, initAudioAutoUnlock, unlockAudio } from '../utils/audio';
-import { Volume2, Wifi, Maximize2, Clock, Plus } from 'lucide-react';
+import { announceTicket, unlockAudio, chimeDataUri, isAudioContextRunning } from '../utils/audio';
+import { Volume2, Wifi, Maximize2, Clock, Plus, VolumeX } from 'lucide-react';
 
 export default function TvPanel() {
   const [currentTicket, setCurrentTicket] = useState(null);
@@ -10,22 +10,36 @@ export default function TvPanel() {
   const [isCalling, setIsCalling] = useState(false);
   const [timeStr, setTimeStr] = useState('');
   const [dateStr, setDateStr] = useState('');
+  const [audioUnlocked, setAudioUnlocked] = useState(true);
 
   const callingTimerRef = useRef(null);
   const lastTicketIdRef = useRef(null);
+  const audioRef = useRef(null);
 
-  const handleTouch = () => {
+  const handleUnlockAudio = () => {
     unlockAudio();
+    if (audioRef.current) {
+      audioRef.current.play().then(() => {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }).catch(() => {});
+    }
+    setAudioUnlocked(true);
   };
 
   useEffect(() => {
-    // Tenta desbloqueio de áudio automático no carregamento
-    initAudioAutoUnlock();
+    // Tenta desbloqueio automático no carregamento
+    unlockAudio();
+    setAudioUnlocked(isAudioContextRunning());
 
     const updateClock = () => {
       const now = new Date();
       setTimeStr(now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setDateStr(now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
+      
+      if (isAudioContextRunning()) {
+        setAudioUnlocked(true);
+      }
     };
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
@@ -43,7 +57,7 @@ export default function TvPanel() {
       if (callingTimerRef.current) clearTimeout(callingTimerRef.current);
       callingTimerRef.current = setTimeout(() => setIsCalling(false), 4000);
 
-      // Desbloqueia e executa Bip + Voz 100% automático sem telas de aviso
+      // Desbloqueia e executa Bip + Voz
       unlockAudio();
       announceTicket(ticket.number, ticket.desk);
     };
@@ -83,11 +97,19 @@ export default function TvPanel() {
       }
     }, 1500);
 
+    // Ouvintes de desbloqueio transparente em qualquer interação do controle remoto / teclado
+    const events = ['click', 'touchstart', 'keydown', 'focus'];
+    const globalUnlock = () => {
+      handleUnlockAudio();
+    };
+    events.forEach(evt => window.addEventListener(evt, globalUnlock, { capture: true, passive: true }));
+
     return () => {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('state-update', onStateUpdate);
       socket.off('ticket-called', onTicketCalled);
+      events.forEach(evt => window.removeEventListener(evt, globalUnlock, { capture: true }));
       clearInterval(clockInterval);
       clearInterval(pollInterval);
     };
@@ -103,12 +125,14 @@ export default function TvPanel() {
 
   return (
     <div 
-      onClick={handleTouch}
-      onTouchStart={handleTouch}
+      onClick={handleUnlockAudio}
+      onTouchStart={handleUnlockAudio}
       className="min-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative cursor-pointer"
     >
-      
-      {/* PADRÃO DE CRUZES DECORATIVAS CMIP NAS PONTAS */}
+      {/* Player de áudio HTML5 embutido na DOM para contornar Autoplay do Chrome */}
+      <audio ref={audioRef} src={chimeDataUri} preload="auto" />
+
+      {/* PADRÃO DE CRUZES DECORATIVAS CMIP */}
       <div className="absolute top-6 left-6 grid grid-cols-4 gap-2 opacity-25 pointer-events-none">
         {[...Array(16)].map((_, i) => (
           <Plus key={i} className="w-6 h-6 text-cmip-400" />
@@ -119,6 +143,17 @@ export default function TvPanel() {
           <Plus key={i} className="w-6 h-6 text-cmip-400" />
         ))}
       </div>
+
+      {/* OVERLAY DISCRETO CASO O CHROME BLOQUEIE O AUTOPLAY INICIAL DA TV */}
+      {!audioUnlocked && (
+        <div 
+          onClick={handleUnlockAudio}
+          className="bg-amber-500 text-slate-950 px-6 py-2 font-black text-center text-xs shadow-2xl flex items-center justify-center gap-2 z-50 cursor-pointer animate-pulse uppercase tracking-wider"
+        >
+          <VolumeX className="w-4 h-4" />
+          <span>Toque 1 vez em qualquer lugar da tela ou no controle da TV para liberar o som das chamadas</span>
+        </div>
+      )}
 
       {/* CABEÇALHO DA TV CMIP */}
       <header className="px-8 py-5 bg-cmip-900/90 border-b border-cmip-600/30 flex items-center justify-between shadow-2xl backdrop-blur-md relative z-10">
@@ -179,7 +214,10 @@ export default function TvPanel() {
                 SENHA CMIP
               </span>
 
-              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/80 text-emerald-300 text-xs font-semibold">
+              <div 
+                onClick={handleUnlockAudio}
+                className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/80 text-emerald-300 text-xs font-semibold cursor-pointer"
+              >
                 <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
                 <span>Áudio & Voz CMIP</span>
               </div>
