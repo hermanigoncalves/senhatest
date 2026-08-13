@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '../src/utils/supabaseClient.js';
+import { supabaseAdmin } from './_supabase.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from '../src/utils/supabaseClient.js';
+import { supabase, supabaseAdmin } from './_supabase.js';
 
 let memoryState = {
   counter: 0,
