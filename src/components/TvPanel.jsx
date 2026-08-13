@@ -28,7 +28,6 @@ export default function TvPanel() {
   };
 
   useEffect(() => {
-    // Tenta desbloqueio automático no carregamento
     unlockAudio();
     setAudioUnlocked(isAudioContextRunning());
 
@@ -57,7 +56,6 @@ export default function TvPanel() {
       if (callingTimerRef.current) clearTimeout(callingTimerRef.current);
       callingTimerRef.current = setTimeout(() => setIsCalling(false), 4000);
 
-      // Desbloqueia e executa Bip + Voz
       unlockAudio();
       announceTicket(ticket.number, ticket.desk);
     };
@@ -97,7 +95,6 @@ export default function TvPanel() {
       }
     }, 1500);
 
-    // Ouvintes de desbloqueio transparente em qualquer interação do controle remoto / teclado
     const events = ['click', 'touchstart', 'keydown', 'focus'];
     const globalUnlock = () => {
       handleUnlockAudio();
@@ -129,7 +126,6 @@ export default function TvPanel() {
       onTouchStart={handleUnlockAudio}
       className="min-h-screen bg-cmip-950 text-white flex flex-col font-['Montserrat',sans-serif] select-none overflow-hidden cmip-plus-pattern relative cursor-pointer"
     >
-      {/* Player de áudio HTML5 embutido na DOM para contornar Autoplay do Chrome */}
       <audio ref={audioRef} src={chimeDataUri} preload="auto" />
 
       {/* PADRÃO DE CRUZES DECORATIVAS CMIP */}
@@ -144,7 +140,7 @@ export default function TvPanel() {
         ))}
       </div>
 
-      {/* OVERLAY DISCRETO CASO O CHROME BLOQUEIE O AUTOPLAY INICIAL DA TV */}
+      {/* OVERLAY CASO BLOQUEADO */}
       {!audioUnlocked && (
         <div 
           onClick={handleUnlockAudio}
@@ -214,16 +210,14 @@ export default function TvPanel() {
                 SENHA CMIP
               </span>
 
-              <div 
-                onClick={handleUnlockAudio}
-                className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/80 text-emerald-300 text-xs font-semibold cursor-pointer"
-              >
-                <Volume2 className="w-4 h-4 text-emerald-400 animate-pulse" />
-                <span>Áudio & Voz CMIP</span>
+              {/* EXIBIÇÃO EM DESTAQUE DA HORA DA CHAMADA */}
+              <div className="flex items-center gap-2 px-4 py-1.5 rounded-full border border-cmip-500/40 bg-cmip-950/80 text-cmip-100 text-xs font-bold shadow-md">
+                <Clock className="w-4 h-4 text-cmip-400" />
+                <span>Horário da Chamada: <strong className="text-amber-300">{currentTicket ? currentTicket.timestamp : '--:--'}</strong></span>
               </div>
             </div>
 
-            <div className="my-auto py-8">
+            <div className="my-auto py-6">
               <p className="text-sm md:text-base text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">SENHA ATUAL</p>
               <div className="text-7xl sm:text-8xl lg:text-9xl xl:text-[11rem] font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)]">
                 {currentTicket ? currentTicket.number : '---'}
@@ -260,7 +254,9 @@ export default function TvPanel() {
                       <div className="text-sm font-semibold text-amber-300 mt-0.5">{item.desk}</div>
                     </div>
                     <div className="text-right">
-                      <span className="text-xs font-mono text-cmip-100/70 bg-cmip-900 px-2.5 py-1 rounded-lg border border-cmip-600/30">
+                      {/* DESTACADA A HORA EM CADA ITEM DO HISTÓRICO */}
+                      <span className="text-xs font-mono font-bold text-cmip-400 bg-cmip-900 px-3 py-1.5 rounded-lg border border-cmip-500/40 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5" />
                         {item.timestamp}
                       </span>
                     </div>

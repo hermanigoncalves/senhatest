@@ -61,7 +61,7 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber } = req.body || {};
 
-    // Ação: Definir número inicial da senha (Ex: 50 -> próxima será 50)
+    // Ação: Definir número inicial da senha
     if (action === 'set-initial-ticket' && initialNumber) {
       const num = parseInt(initialNumber, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
@@ -75,15 +75,27 @@ export default async function handler(req, res) {
     }
 
     let formattedNumber = '';
-    let nextCounter = 0;
+    let nextCounter = memoryState.counter;
 
-    if (action === 'call-custom' && customNumber) {
+    // AÇÃO: RECHAMAR (Não incrementa o contador! Mantém a mesma senha)
+    if (action === 'repeat') {
+      if (memoryState.currentTicket) {
+        formattedNumber = memoryState.currentTicket.number;
+        nextCounter = memoryState.currentTicket.rawNumber || memoryState.counter;
+      } else {
+        formattedNumber = customNumber || '0001';
+      }
+    } 
+    // AÇÃO: CHAMADA CUSTOMIZADA
+    else if (action === 'call-custom' && customNumber) {
       formattedNumber = String(customNumber).trim();
       if (!isNaN(formattedNumber)) {
         formattedNumber = String(parseInt(formattedNumber, 10)).padStart(4, '0');
       }
       nextCounter = memoryState.counter;
-    } else {
+    } 
+    // AÇÃO: CHAMAR PRÓXIMA (Incrementa de 1 a 1000)
+    else {
       if (process.env.POSTGRES_URL) {
         try {
           const { rows } = await sql`SELECT raw_number FROM tickets ORDER BY id DESC LIMIT 1;`;
@@ -100,7 +112,7 @@ export default async function handler(req, res) {
 
     const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const newTicket = {
-      id: Date.now(),
+      id: Date.now(), // ID único gera novo evento na TV
       number: formattedNumber,
       rawNumber: nextCounter,
       desk,
@@ -111,9 +123,13 @@ export default async function handler(req, res) {
 
     memoryState.counter = nextCounter;
     memoryState.currentTicket = newTicket;
-    memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
+    
+    // Se for rechamada, atualiza o item no histórico sem duplicar
+    if (action !== 'repeat') {
+      memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
+    }
 
-    if (process.env.POSTGRES_URL) {
+    if (process.env.POSTGRES_URL && action !== 'repeat') {
       try {
         await sql`
           CREATE TABLE IF NOT EXISTS tickets (

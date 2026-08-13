@@ -30,7 +30,7 @@ if (process.env.POSTGRES_URL) {
 
 // Estado da Fila em Memória / Cache
 let queueState = {
-  counter: 0, // Varia de 1 a 1000
+  counter: 0,
   currentTicket: null,
   history: [],
   desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
@@ -92,18 +92,15 @@ io.on('connection', (socket) => {
   console.log(`[Socket.IO] Cliente conectado: ${socket.id}`);
   socket.emit('state-update', queueState);
 
-  // Evento: Definir Senha Inicial / Contador Inicial
   socket.on('set-initial-ticket', (data) => {
     const num = parseInt(data.number, 10);
     if (!isNaN(num) && num >= 1 && num <= 1000) {
-      // Define para que a próxima chamada seja este número exatamente
       queueState.counter = num - 1;
       io.emit('state-update', queueState);
       console.log(`[Contador CMIP] Senha inicial definida para começar em: ${num}`);
     }
   });
 
-  // Evento: Chamar Próxima Senha (1 a 1000)
   socket.on('call-next', async (data = {}) => {
     const desk = data.desk || queueState.desks[0];
 
@@ -181,17 +178,21 @@ io.on('connection', (socket) => {
     io.emit('state-update', queueState);
   });
 
+  // Rechamada da senha atual sem incrementar
   socket.on('repeat-call', () => {
     if (!queueState.currentTicket) return;
 
     const repeatedTicket = {
       ...queueState.currentTicket,
+      id: Date.now(), // Gera novo ID para disparar novo Bip e Fala na TV
       isRepeat: true,
       timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
     };
 
+    queueState.currentTicket = repeatedTicket;
     io.emit('ticket-called', repeatedTicket);
-    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada`);
+    io.emit('state-update', queueState);
+    console.log(`[Rechamada CMIP] Senha ${repeatedTicket.number} rechamada para ${repeatedTicket.desk}`);
   });
 
   socket.on('reset-queue', () => {

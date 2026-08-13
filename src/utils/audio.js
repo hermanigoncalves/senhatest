@@ -1,10 +1,9 @@
-// Motor de Áudio Híbrido CMIP para TV (Web Audio + HTML5 Audio + SpeechSynthesis PT-BR)
+// Motor de Áudio Híbrido CMIP para TV com Seleção de Vozes Nativas em PT-BR
 
 let audioCtx = null;
 let ptVoice = null;
 let chimeAudioElement = null;
 
-// Gera um arquivo WAV PCM de Bip "Ding-Dong" cristalino em Data URI
 function generateChimeDataUri() {
   const sampleRate = 22050;
   const duration = 1.2;
@@ -32,10 +31,10 @@ function generateChimeDataUri() {
   const wavHeader = new ArrayBuffer(44 + numSamples * 2);
   const view = new DataView(wavHeader);
 
-  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(0, 0x52494646, false);
   view.setUint32(4, 36 + numSamples * 2, true);
-  view.setUint32(8, 0x57415645, false); // "WAVE"
-  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(8, 0x57415645, false);
+  view.setUint32(12, 0x666d7420, false);
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
   view.setUint16(22, 1, true);
@@ -43,7 +42,7 @@ function generateChimeDataUri() {
   view.setUint32(28, sampleRate * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
-  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(36, 0x64617461, false);
   view.setUint32(40, numSamples * 2, true);
 
   const bytes = new Uint8Array(wavHeader);
@@ -60,10 +59,23 @@ function generateChimeDataUri() {
 
 export const chimeDataUri = generateChimeDataUri();
 
+/**
+ * Seleciona a melhor voz disponível no dispositivo para o Português (PT-BR)
+ */
 function loadVoices() {
-  if ('speechSynthesis' in window) {
-    const voices = window.speechSynthesis.getVoices();
-    ptVoice = voices.find(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')) || voices[0];
+  if (!('speechSynthesis' in window)) return;
+
+  const voices = window.speechSynthesis.getVoices();
+  const ptVoices = voices.filter(v => v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt'));
+  
+  if (ptVoices.length > 0) {
+    // Tenta encontrar vozes femininas comuns instaladas nos sistemas (Google, Luciana, Maria, Francisca, Fernanda, Helena)
+    const preferredVoice = ptVoices.find(v => 
+      /female|mulher|luciana|maria|francisca|fernanda|helena|vitoria|vitória|google/i.test(v.name)
+    );
+    ptVoice = preferredVoice || ptVoices[0];
+  } else if (voices.length > 0) {
+    ptVoice = voices[0];
   }
 }
 
@@ -109,7 +121,6 @@ export function playChimeSound() {
   return new Promise((resolve) => {
     let played = false;
 
-    // HTML5 Audio Playback
     try {
       if (!chimeAudioElement) {
         chimeAudioElement = new Audio(chimeDataUri);
@@ -122,13 +133,10 @@ export function playChimeSound() {
         playPromise.then(() => {
           played = true;
           setTimeout(resolve, 1100);
-        }).catch(err => {
-          console.warn('[HTML5 Audio Blocked by Browser Autoplay Policy]', err);
-        });
+        }).catch(() => {});
       }
     } catch (e) {}
 
-    // Web Audio API Playback (Dual Engine)
     try {
       const ctx = getAudioContext();
       if (ctx) {
