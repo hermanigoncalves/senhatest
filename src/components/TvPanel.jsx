@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket, fetchVercelState } from '../utils/socket';
-import { announceTicket, unlockAudio, chimeDataUri, isAudioContextRunning } from '../utils/audio';
+import { announceTicket, unlockAudio, warmupAudio, chimeDataUri, isAudioContextRunning } from '../utils/audio';
 import { Volume2, Wifi, Maximize2, Clock, Plus, VolumeX } from 'lucide-react';
 
 export default function TvPanel() {
@@ -17,7 +17,7 @@ export default function TvPanel() {
   const audioRef = useRef(null);
 
   const handleUnlockAudio = () => {
-    unlockAudio();
+    warmupAudio();
     if (audioRef.current) {
       audioRef.current.play().then(() => {
         audioRef.current.pause();
@@ -28,8 +28,11 @@ export default function TvPanel() {
   };
 
   useEffect(() => {
-    // Tenta desbloquear caso o navegador permita autoplay sem gesto
-    unlockAudio();
+    // Aquecimento automático assim que a tela abre
+    warmupAudio();
+    if (isAudioContextRunning()) {
+      setAudioUnlocked(true);
+    }
 
     const updateClock = () => {
       const now = new Date();
