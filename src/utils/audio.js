@@ -155,39 +155,46 @@ export function playChimeSound() {
     };
 
     const ctx = getAudioContext();
-    if (ctx && ctx.state === 'running') {
-      try {
-        const now = ctx.currentTime;
-        
-        // Nota 1: "Ding" (G5 - 783.99Hz)
-        const osc1 = ctx.createOscillator();
-        const gain1 = ctx.createGain();
-        osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(783.99, now);
-        gain1.gain.setValueAtTime(0, now);
-        gain1.gain.linearRampToValueAtTime(0.8, now + 0.02);
-        gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
-        osc1.connect(gain1);
-        gain1.connect(ctx.destination);
-        osc1.start(now);
-        osc1.stop(now + 0.35);
+    if (ctx) {
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
 
-        // Nota 2: "Dong" (E5 - 659.25Hz)
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(659.25, now + 0.16);
-        gain2.gain.setValueAtTime(0, now + 0.16);
-        gain2.gain.linearRampToValueAtTime(0.9, now + 0.18);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.start(now + 0.16);
-        osc2.stop(now + 0.42);
+      if (ctx.state === 'running') {
+        try {
+          const now = ctx.currentTime;
+          
+          // Nota 1: "Ding" (G5 - 783.99Hz)
+          const osc1 = ctx.createOscillator();
+          const gain1 = ctx.createGain();
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(783.99, now);
+          gain1.gain.setValueAtTime(0, now);
+          gain1.gain.linearRampToValueAtTime(0.8, now + 0.02);
+          gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+          osc1.connect(gain1);
+          gain1.connect(ctx.destination);
+          osc1.start(now);
+          osc1.stop(now + 0.3);
 
-        setTimeout(safeResolve, 420);
-        return;
-      } catch (e) {}
+          // Nota 2: "Dong" (E5 - 659.25Hz)
+          const osc2 = ctx.createOscillator();
+          const gain2 = ctx.createGain();
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(659.25, now + 0.15);
+          gain2.gain.setValueAtTime(0, now + 0.15);
+          gain2.gain.linearRampToValueAtTime(0.9, now + 0.17);
+          gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+          osc2.connect(gain2);
+          gain2.connect(ctx.destination);
+          osc2.start(now + 0.15);
+          osc2.stop(now + 0.38);
+
+          // Libera a síntese de voz em 180ms para preparar o motor enquanto o Dong decai naturalmente
+          setTimeout(safeResolve, 180);
+          return;
+        } catch (e) {}
+      }
     }
 
     // Fallback via elemento de Áudio HTML5
@@ -197,20 +204,10 @@ export function playChimeSound() {
       }
       chimeAudioElement.currentTime = 0;
       chimeAudioElement.volume = 1.0;
-      
-      const playPromise = chimeAudioElement.play();
-      if (playPromise !== undefined) {
-        playPromise.then(() => {
-          setTimeout(safeResolve, 450);
-        }).catch(() => safeResolve());
-      } else {
-        safeResolve();
-      }
-    } catch (e) {
-      safeResolve();
-    }
+      chimeAudioElement.play().catch(() => {});
+    } catch (e) {}
 
-    setTimeout(safeResolve, 500);
+    setTimeout(safeResolve, 200);
   });
 }
 
@@ -236,7 +233,6 @@ export function speakTicketOnline(phrase) {
 
     function playUrl() {
       if (urlIdx >= ttsUrls.length) {
-        console.warn('[TTS] Todos os servidores de voz online falharam.');
         return resolve();
       }
 
@@ -256,8 +252,7 @@ export function speakTicketOnline(phrase) {
         };
 
         audio.onended = done;
-        audio.onerror = (err) => {
-          console.warn(`[TTS Error] Falha no servidor ${currentUrl}, tentando próximo...`, err);
+        audio.onerror = () => {
           if (!hasResolved) {
             playUrl();
           }
@@ -265,8 +260,7 @@ export function speakTicketOnline(phrase) {
 
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-          playPromise.then(() => {}).catch((err) => {
-            console.warn(`[TTS Autoplay Error] ${currentUrl}`, err);
+          playPromise.then(() => {}).catch(() => {
             if (!hasResolved) {
               playUrl();
             }
@@ -284,22 +278,22 @@ export function speakTicketOnline(phrase) {
 export function speakTicket(number, desk) {
   return new Promise((resolve) => {
     const phrase = formatTextForSpeech(number, desk);
-
-    // No navegador da TV Samsung Tizen, priorizamos o TTS Online por ter voz em Português garantida
     const isSamsungTv = typeof navigator !== 'undefined' && /Tizen|SmartTV|Samsung/i.test(navigator.userAgent);
 
     if (!isSamsungTv && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel();
+        // Cancela apenas se já houver uma fala em andamento, evitando engasgo do motor
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+          window.speechSynthesis.cancel();
+        }
         window.speechSynthesis.resume();
 
-        const currentVoice = ptVoice || loadVoices();
         const voices = window.speechSynthesis.getVoices();
-        const validPtVoice = currentVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt'))));
+        const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')))) || (voices && voices[0]);
 
         const utterance = new SpeechSynthesisUtterance(phrase);
         utterance.lang = 'pt-BR';
-        utterance.rate = 0.95;
+        utterance.rate = 1.05; // Velocidade fluida e natural
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
         if (validPtVoice) {
@@ -325,10 +319,9 @@ export function speakTicket(number, desk) {
         setTimeout(() => {
           if (!hasEnded) {
             hasEnded = true;
-            try { window.speechSynthesis.cancel(); } catch (e) {}
             speakTicketOnline(phrase).then(resolve);
           }
-        }, 3500);
+        }, 3000);
 
         window.speechSynthesis.speak(utterance);
         return;
@@ -337,7 +330,6 @@ export function speakTicket(number, desk) {
       }
     }
 
-    // Se for TV Samsung ou dispositivo sem voz nativa em PT-BR, usa o sintetizador online
     speakTicketOnline(phrase).then(resolve);
   });
 }
