@@ -92,7 +92,7 @@ export default function TvPanel() {
           }
         }
       }
-    }, 1500);
+    }, 300);
 
     const events = ['click', 'touchstart', 'keydown', 'keyup', 'pointerdown', 'focus'];
     const globalUnlock = () => {

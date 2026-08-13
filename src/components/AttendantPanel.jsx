@@ -45,7 +45,7 @@ export default function AttendantPanel() {
     const interval = setInterval(async () => {
       const state = await fetchVercelState();
       if (state) updateState(state);
-    }, 2000);
+    }, 500);
 
     return () => {
       socket.off('state-update', onStateUpdate);
