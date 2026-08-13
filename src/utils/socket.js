@@ -27,7 +27,7 @@ export async function setInitialTicketVercel(initialNumber) {
     const res = await fetch('/api/ticket', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'set-initial-ticket', initialNumber })
+      body: JSON.stringify({ action: 'set-initial-ticket', initialNumber, number: initialNumber })
     });
     return await res.json();
   } catch (err) {

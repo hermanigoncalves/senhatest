@@ -60,11 +60,14 @@ export default function AttendantPanel() {
     const num = parseInt(initialNumber.trim(), 10);
     if (isNaN(num) || num < 1 || num > 1000) return;
 
+    // Atualiza a interface do front-end imediatamente
+    updateState({ ...queueState, counter: num - 1 });
+
     if (isVercelHost || !socket.connected) {
       const res = await setInitialTicketVercel(num);
       if (res?.state) updateState(res.state);
     } else {
-      socket.emit('set-initial-ticket', { number: num });
+      socket.emit('set-initial-ticket', { number: num, initialNumber: num });
     }
 
     setInitialSaved(true);

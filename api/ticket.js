@@ -93,10 +93,11 @@ export default async function handler(req, res) {
   }
 
   if (req.method === 'POST') {
-    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber } = req.body || {};
+    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber, number } = req.body || {};
+    const targetInitial = initialNumber !== undefined ? initialNumber : number;
 
-    if (action === 'set-initial-ticket' && initialNumber) {
-      const num = parseInt(initialNumber, 10);
+    if (action === 'set-initial-ticket' && targetInitial !== undefined && targetInitial !== null) {
+      const num = parseInt(targetInitial, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
         memoryState.counter = num - 1;
         memoryState.callSequence += 1;
