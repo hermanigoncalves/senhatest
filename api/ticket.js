@@ -21,6 +21,15 @@ export default async function handler(req, res) {
     return;
   }
 
+  // Função auxiliar para formatar hora estritamente no fuso de Brasília (UTC-3)
+  const formatBrasiliaTime = (dateObj = new Date()) => {
+    return dateObj.toLocaleTimeString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   if (req.method === 'GET') {
     if (process.env.POSTGRES_URL) {
       try {
@@ -31,7 +40,7 @@ export default async function handler(req, res) {
           rawNumber: rows[0].raw_number,
           desk: rows[0].desk,
           type: rows[0].type,
-          timestamp: new Date(rows[0].created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
         } : null;
 
         const history = rows.map(r => ({
@@ -40,7 +49,7 @@ export default async function handler(req, res) {
           rawNumber: r.raw_number,
           desk: r.desk,
           type: r.type,
-          timestamp: new Date(r.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+          timestamp: formatBrasiliaTime(new Date(r.created_at))
         }));
 
         const counter = rows[0] ? rows[0].raw_number : memoryState.counter;
@@ -61,7 +70,6 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber } = req.body || {};
 
-    // Ação: Definir número inicial da senha
     if (action === 'set-initial-ticket' && initialNumber) {
       const num = parseInt(initialNumber, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
@@ -77,7 +85,6 @@ export default async function handler(req, res) {
     let formattedNumber = '';
     let nextCounter = memoryState.counter;
 
-    // AÇÃO: RECHAMAR (Não incrementa o contador! Mantém a mesma senha)
     if (action === 'repeat') {
       if (memoryState.currentTicket) {
         formattedNumber = memoryState.currentTicket.number;
@@ -85,17 +92,13 @@ export default async function handler(req, res) {
       } else {
         formattedNumber = customNumber || '0001';
       }
-    } 
-    // AÇÃO: CHAMADA CUSTOMIZADA
-    else if (action === 'call-custom' && customNumber) {
+    } else if (action === 'call-custom' && customNumber) {
       formattedNumber = String(customNumber).trim();
       if (!isNaN(formattedNumber)) {
         formattedNumber = String(parseInt(formattedNumber, 10)).padStart(4, '0');
       }
       nextCounter = memoryState.counter;
-    } 
-    // AÇÃO: CHAMAR PRÓXIMA (Incrementa de 1 a 1000)
-    else {
+    } else {
       if (process.env.POSTGRES_URL) {
         try {
           const { rows } = await sql`SELECT raw_number FROM tickets ORDER BY id DESC LIMIT 1;`;
@@ -110,9 +113,9 @@ export default async function handler(req, res) {
       formattedNumber = String(nextCounter).padStart(4, '0');
     }
 
-    const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatBrasiliaTime();
     const newTicket = {
-      id: Date.now(), // ID único gera novo evento na TV
+      id: Date.now(),
       number: formattedNumber,
       rawNumber: nextCounter,
       desk,
@@ -124,7 +127,6 @@ export default async function handler(req, res) {
     memoryState.counter = nextCounter;
     memoryState.currentTicket = newTicket;
     
-    // Se for rechamada, atualiza o item no histórico sem duplicar
     if (action !== 'repeat') {
       memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
     }

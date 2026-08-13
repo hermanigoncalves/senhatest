@@ -36,6 +36,14 @@ let queueState = {
   desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
 };
 
+const formatBrasiliaTime = (dateObj = new Date()) => {
+  return dateObj.toLocaleTimeString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
 async function initDatabase() {
   if (!sql || !process.env.POSTGRES_URL) return;
   try {
@@ -111,7 +119,7 @@ io.on('connection', (socket) => {
     }
 
     const formattedNumber = String(queueState.counter).padStart(4, '0');
-    const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatBrasiliaTime();
 
     const newTicket = {
       id: Date.now(),
@@ -145,7 +153,7 @@ io.on('connection', (socket) => {
     if (!data.number) return;
 
     const desk = data.desk || queueState.desks[0];
-    const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const nowStr = formatBrasiliaTime();
 
     let formattedNumber = String(data.number).trim();
     if (!isNaN(formattedNumber)) {
@@ -178,15 +186,14 @@ io.on('connection', (socket) => {
     io.emit('state-update', queueState);
   });
 
-  // Rechamada da senha atual sem incrementar
   socket.on('repeat-call', () => {
     if (!queueState.currentTicket) return;
 
     const repeatedTicket = {
       ...queueState.currentTicket,
-      id: Date.now(), // Gera novo ID para disparar novo Bip e Fala na TV
+      id: Date.now(),
       isRepeat: true,
-      timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      timestamp: formatBrasiliaTime()
     };
 
     queueState.currentTicket = repeatedTicket;

@@ -188,34 +188,92 @@ function formatTextForSpeech(number, desk) {
   return `Senha ${cleanNumber}, ${cleanDesk}`;
 }
 
-export function speakTicket(number, desk) {
+export function speakTicketOnline(phrase) {
   return new Promise((resolve) => {
-    if (!('speechSynthesis' in window)) return resolve();
-
     try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
+      const text = encodeURIComponent(phrase);
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${text}&tl=pt-BR&client=tw-ob`;
+      const audio = new Audio(ttsUrl);
+      audio.volume = 1.0;
 
-      const phrase = formatTextForSpeech(number, desk);
-      const utterance = new SpeechSynthesisUtterance(phrase);
-      
-      utterance.lang = 'pt-BR';
-      utterance.rate = 0.95;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
+      audio.onended = () => resolve();
+      audio.onerror = (e) => {
+        console.error('[TTS Online Fallback Error]', e);
+        resolve();
+      };
 
-      if (!ptVoice) loadVoices();
-      if (ptVoice) utterance.voice = ptVoice;
-
-      utterance.onend = () => resolve();
-      utterance.onerror = () => resolve();
-
-      window.speechSynthesis.speak(utterance);
-
-    } catch (err) {
-      console.error('[Voz Error]', err);
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.then(() => {}).catch((err) => {
+          console.error('[Audio Play Error]', err);
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    } catch (e) {
+      console.error('[TTS Fallback Exception]', e);
       resolve();
     }
+  });
+}
+
+export function speakTicket(number, desk) {
+  return new Promise((resolve) => {
+    const phrase = formatTextForSpeech(number, desk);
+
+    if ('speechSynthesis' in window) {
+      try {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+
+        if (!ptVoice) loadVoices();
+        const voices = window.speechSynthesis.getVoices();
+        const hasPtVoice = voices && voices.length > 0 && voices.some(v => v.lang && (v.lang.includes('pt') || v.lang.includes('PT')));
+
+        if (hasPtVoice || ptVoice) {
+          const utterance = new SpeechSynthesisUtterance(phrase);
+          utterance.lang = 'pt-BR';
+          utterance.rate = 0.95;
+          utterance.pitch = 1.0;
+          utterance.volume = 1.0;
+          if (ptVoice) utterance.voice = ptVoice;
+
+          let hasEnded = false;
+          const finish = () => {
+            if (!hasEnded) {
+              hasEnded = true;
+              resolve();
+            }
+          };
+
+          utterance.onend = finish;
+          utterance.onerror = () => {
+            if (!hasEnded) {
+              hasEnded = true;
+              speakTicketOnline(phrase).then(resolve);
+            }
+          };
+
+          // Timeout de segurança: se a voz nativa congelar na TV, usa o fallback online após 3s
+          setTimeout(() => {
+            if (!hasEnded) {
+              hasEnded = true;
+              try { window.speechSynthesis.cancel(); } catch (e) {}
+              speakTicketOnline(phrase).then(resolve);
+            }
+          }, 3000);
+
+          window.speechSynthesis.speak(utterance);
+          return;
+        }
+      } catch (err) {
+        console.error('[Voz Nativa Error]', err);
+      }
+    }
+
+    // Se não houver voz nativa (como nas Smart TVs Samsung Tizen), usa o sintetizador online
+    speakTicketOnline(phrase).then(resolve);
   });
 }
 
@@ -225,3 +283,4 @@ export async function announceTicket(number, desk) {
   await new Promise(r => setTimeout(r, 250));
   await speakTicket(number, desk);
 }
+

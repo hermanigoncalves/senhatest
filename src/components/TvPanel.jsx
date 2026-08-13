@@ -10,7 +10,7 @@ export default function TvPanel() {
   const [isCalling, setIsCalling] = useState(false);
   const [timeStr, setTimeStr] = useState('');
   const [dateStr, setDateStr] = useState('');
-  const [audioUnlocked, setAudioUnlocked] = useState(true);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const callingTimerRef = useRef(null);
   const lastTicketIdRef = useRef(null);
@@ -28,17 +28,13 @@ export default function TvPanel() {
   };
 
   useEffect(() => {
+    // Tenta desbloquear caso o navegador permita autoplay sem gesto
     unlockAudio();
-    setAudioUnlocked(isAudioContextRunning());
 
     const updateClock = () => {
       const now = new Date();
       setTimeStr(now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
       setDateStr(now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
-      
-      if (isAudioContextRunning()) {
-        setAudioUnlocked(true);
-      }
     };
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
@@ -95,7 +91,7 @@ export default function TvPanel() {
       }
     }, 1500);
 
-    const events = ['click', 'touchstart', 'keydown', 'focus'];
+    const events = ['click', 'touchstart', 'keydown', 'keyup', 'pointerdown', 'focus'];
     const globalUnlock = () => {
       handleUnlockAudio();
     };
@@ -140,14 +136,14 @@ export default function TvPanel() {
         ))}
       </div>
 
-      {/* OVERLAY CASO BLOQUEADO */}
+      {/* OVERLAY CASO BLOQUEADO DA TV */}
       {!audioUnlocked && (
         <div 
           onClick={handleUnlockAudio}
-          className="bg-amber-500 text-slate-950 px-6 py-2 font-black text-center text-xs shadow-2xl flex items-center justify-center gap-2 z-50 cursor-pointer animate-pulse uppercase tracking-wider"
+          className="bg-amber-400 text-slate-950 px-6 py-3 font-black text-center text-sm md:text-base shadow-2xl flex items-center justify-center gap-3 z-50 cursor-pointer animate-pulse uppercase tracking-wider border-b-2 border-amber-600"
         >
-          <VolumeX className="w-4 h-4" />
-          <span>Toque 1 vez em qualquer lugar da tela ou no controle da TV para liberar o som das chamadas</span>
+          <VolumeX className="w-6 h-6 text-slate-950 animate-bounce" />
+          <span>⚠️ ÁUDIO BLOQUEADO DA TV: PRESSIONE QUALQUER BOTÃO NO CONTROLE DA TV OU CLIQUE NA TELA PARA LIBERAR O SOM DAS CHAMADAS!</span>
         </div>
       )}
 
