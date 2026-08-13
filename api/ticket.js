@@ -38,42 +38,58 @@ export default async function handler(req, res) {
         .order('id', { ascending: false })
         .limit(10);
 
-      if (!error && rows && rows.length > 0) {
-        const current = {
-          id: rows[0].id,
-          callId: rows[0].call_id || rows[0].id,
-          number: rows[0].number,
-          rawNumber: rows[0].raw_number,
-          desk: rows[0].desk,
-          type: rows[0].type,
-          timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
-        };
+      if (!error) {
+        if (rows && rows.length > 0) {
+          const current = {
+            id: rows[0].id,
+            callId: rows[0].call_id || rows[0].id,
+            number: rows[0].number,
+            rawNumber: rows[0].raw_number,
+            desk: rows[0].desk,
+            type: rows[0].type,
+            timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
+          };
 
-        const history = rows.map(r => ({
-          id: r.id,
-          callId: r.call_id || r.id,
-          number: r.number,
-          rawNumber: r.raw_number,
-          desk: r.desk,
-          type: r.type,
-          timestamp: formatBrasiliaTime(new Date(r.created_at))
-        }));
+          const history = rows.map(r => ({
+            id: r.id,
+            callId: r.call_id || r.id,
+            number: r.number,
+            rawNumber: r.raw_number,
+            desk: r.desk,
+            type: r.type,
+            timestamp: formatBrasiliaTime(new Date(r.created_at))
+          }));
 
-        const counter = rows[0].raw_number || memoryState.counter;
-        const callSequence = rows[0].call_id || memoryState.callSequence;
+          const counter = rows[0].raw_number || 0;
+          const callSequence = rows[0].call_id || 0;
 
-        memoryState.counter = counter;
-        memoryState.callSequence = callSequence;
-        memoryState.currentTicket = current;
-        memoryState.history = history;
+          memoryState.counter = counter;
+          memoryState.callSequence = callSequence;
+          memoryState.currentTicket = current;
+          memoryState.history = history;
 
-        return res.status(200).json({
-          counter,
-          callSequence,
-          currentTicket: current,
-          history,
-          desks: memoryState.desks
-        });
+          return res.status(200).json({
+            counter,
+            callSequence,
+            currentTicket: current,
+            history,
+            desks: memoryState.desks
+          });
+        } else {
+          // Quando a tabela no Supabase estiver vazia (fila zerada), zera a memória local e retorna zerado
+          memoryState.counter = 0;
+          memoryState.callSequence = 0;
+          memoryState.currentTicket = null;
+          memoryState.history = [];
+
+          return res.status(200).json({
+            counter: 0,
+            callSequence: 0,
+            currentTicket: null,
+            history: [],
+            desks: memoryState.desks
+          });
+        }
       }
     } catch (err) {
       console.error('[Supabase GET Error]', err);

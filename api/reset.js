@@ -11,7 +11,10 @@ export default async function handler(req, res) {
 
   if (req.method === 'POST') {
     try {
-      await supabaseAdmin.from('tickets').delete().gte('id', 0);
+      const { error } = await supabaseAdmin.from('tickets').delete().neq('id', -1);
+      if (error) {
+        console.error('[Supabase Reset Error]', error);
+      }
     } catch (e) {
       console.error('[Supabase Delete Error]', e);
     }

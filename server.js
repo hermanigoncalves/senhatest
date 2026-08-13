@@ -264,7 +264,7 @@ io.on('connection', (socket) => {
     queueState.history = [];
 
     try {
-      await supabaseAdmin.from('tickets').delete().gte('id', 0);
+      await supabaseAdmin.from('tickets').delete().neq('id', -1);
     } catch (dbErr) {
       console.error('[Supabase Delete Error]', dbErr.message);
     }
