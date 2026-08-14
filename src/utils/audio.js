@@ -1,9 +1,20 @@
-// Motor de Áudio Híbrido CMIP para TV com Seleção de Vozes Nativas em PT-BR
+// Motor de Áudio & Voz Híbrido CMIP para TV com Seleção de Vozes Nativas em PT-BR
+// Blindagem contra congelamento do Chromium (Heartbeat, Global Anchoring & Auto-Resume)
 
 let audioCtx = null;
 let ptVoice = null;
 let chimeAudioElement = null;
-let activeUtterance = null;
+
+// Garante que o motor do navegador nunca entre em sono silencioso
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  setInterval(() => {
+    try {
+      if (window.speechSynthesis.paused) {
+        window.speechSynthesis.resume();
+      }
+    } catch (e) {}
+  }, 3000);
+}
 
 function generateChimeDataUri() {
   const sampleRate = 22050;
@@ -61,19 +72,19 @@ function generateChimeDataUri() {
 export const chimeDataUri = generateChimeDataUri();
 
 /**
- * Seleciona a melhor voz disponível no dispositivo para o Português (PT-BR)
+ * Carrega e seleciona a melhor voz disponível em PT-BR
  */
 function loadVoices() {
-  if (!('speechSynthesis' in window)) return null;
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
 
   const voices = window.speechSynthesis.getVoices();
   if (!voices || voices.length === 0) return null;
 
   const ptVoices = voices.filter(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')));
-  
+
   if (ptVoices.length > 0) {
     const preferredVoice = ptVoices.find(v => 
-      /female|mulher|luciana|maria|francisca|fernanda|helena|vitoria|vitória|google/i.test(v.name)
+      /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português/i.test(v.name)
     );
     ptVoice = preferredVoice || ptVoices[0];
   } else {
@@ -114,14 +125,7 @@ export function unlockAudio() {
     }
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
       window.speechSynthesis.resume();
-      
-      // Pré-aquecimento (warmup) do motor de voz do navegador para não falhar no 1º número
-      const warmupUtterance = new SpeechSynthesisUtterance(' ');
-      warmupUtterance.volume = 0.01;
-      warmupUtterance.rate = 10;
-      window.speechSynthesis.speak(warmupUtterance);
     }
   } catch (e) {}
 }
@@ -141,6 +145,10 @@ export function warmupAudio() {
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       loadVoices();
+      const warmup = new SpeechSynthesisUtterance(' ');
+      warmup.volume = 0.01;
+      warmup.rate = 10;
+      window.speechSynthesis.speak(warmup);
     }
   } catch (e) {}
 }
@@ -191,14 +199,12 @@ export function playChimeSound() {
           osc2.start(now + 0.15);
           osc2.stop(now + 0.38);
 
-          // Libera a síntese de voz em 180ms para preparar o motor enquanto o Dong decai naturalmente
-          setTimeout(safeResolve, 180);
+          setTimeout(safeResolve, 220);
           return;
         } catch (e) {}
       }
     }
 
-    // Fallback via elemento de Áudio HTML5
     try {
       if (!chimeAudioElement) {
         chimeAudioElement = new Audio(chimeDataUri);
@@ -208,22 +214,41 @@ export function playChimeSound() {
       chimeAudioElement.play().catch(() => {});
     } catch (e) {}
 
-    setTimeout(safeResolve, 200);
+    setTimeout(safeResolve, 220);
   });
 }
 
-function formatTextForSpeech(number, desk) {
-  let cleanNumber = String(number).replace(/^0+/, '');
+/**
+ * Formata o texto para fala dependendo se for chamada médica nominal ou senha numérica
+ */
+export function formatMedicalSpeech(ticket) {
+  if (!ticket) return 'Próximo atendimento CMIP';
+
+  // Se for chamada nominal de paciente
+  if (ticket.patientName || ticket.patient_name) {
+    const patient = (ticket.patientName || ticket.patient_name || '').trim();
+    const office = (ticket.officeName || ticket.office_name || ticket.desk || 'Consultório').trim();
+    const doctor = (ticket.doctorName || ticket.doctor_name || '').trim();
+    const isPriority = ticket.type === 'Preferencial';
+
+    let prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
+    let phrase = `${prefix}Paciente ${patient}, dirigir-se ao ${office}`;
+    if (doctor) {
+      phrase += `, ${doctor}`;
+    }
+    return phrase;
+  }
+
+  // Fallback para senha numérica tradicional
+  let cleanNumber = String(ticket.number || '').replace(/^0+/, '');
   if (!cleanNumber) cleanNumber = '0';
-  let cleanDesk = String(desk).replace(/0+(\d+)/, '$1');
+  let cleanDesk = String(ticket.desk || 'Atendimento').replace(/0+(\d+)/, '$1');
   return `Senha ${cleanNumber}, ${cleanDesk}`;
 }
 
 export function speakTicketOnline(phrase) {
   return new Promise((resolve) => {
     const text = encodeURIComponent(phrase);
-    
-    // Servidores TTS públicos com suporte a PT-BR
     const ttsUrls = [
       `https://api.streamelements.com/kappa/v2/speech?voice=Vitoria&text=${text}`,
       `https://translate.google.com/translate_tts?ie=UTF-8&q=${text}&tl=pt-BR&client=tw-ob`
@@ -256,7 +281,7 @@ export function speakTicketOnline(phrase) {
             hasResolved = true;
             playUrl();
           }
-        }, 1200);
+        }, 3000);
 
         audio.onended = () => {
           clearTimeout(timer);
@@ -290,29 +315,30 @@ export function speakTicketOnline(phrase) {
   });
 }
 
-export function speakTicket(number, desk) {
+export function speakTicket(ticket) {
   return new Promise((resolve) => {
-    const phrase = formatTextForSpeech(number, desk);
+    const phrase = typeof ticket === 'string' ? ticket : formatMedicalSpeech(ticket);
     const isSamsungTv = typeof navigator !== 'undefined' && /Tizen|SmartTV|Samsung/i.test(navigator.userAgent);
 
     if (!isSamsungTv && typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-          window.speechSynthesis.cancel();
-        }
+        window.speechSynthesis.cancel();
         window.speechSynthesis.resume();
 
         const voices = window.speechSynthesis.getVoices();
         const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')))) || (voices && voices[0]);
 
-        activeUtterance = new SpeechSynthesisUtterance(phrase);
-        activeUtterance.lang = 'pt-BR';
-        activeUtterance.rate = 0.95; // Cadência clara e natural para ambiente de saúde
-        activeUtterance.pitch = 1.0;
-        activeUtterance.volume = 1.0;
+        const utterance = new SpeechSynthesisUtterance(phrase);
+        utterance.lang = 'pt-BR';
+        utterance.rate = 0.93; // Cadência pausada e elegante para ambiente de saúde
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
         if (validPtVoice) {
-          activeUtterance.voice = validPtVoice;
+          utterance.voice = validPtVoice;
         }
+
+        // ANCORAMENTO GLOBAL CONTRA GARBAGE COLLECTION DO CHROMIUM
+        window._activeUtterance = utterance;
 
         let hasEnded = false;
         let safetyTimeout = null;
@@ -321,31 +347,32 @@ export function speakTicket(number, desk) {
           if (!hasEnded) {
             hasEnded = true;
             if (safetyTimeout) clearTimeout(safetyTimeout);
-            activeUtterance = null;
+            window._activeUtterance = null;
             resolve();
           }
         };
 
-        activeUtterance.onend = finish;
-        activeUtterance.onerror = (err) => {
-          console.warn('[SpeechSynthesis Error, usando fallback]', err);
+        utterance.onend = finish;
+        utterance.onerror = (err) => {
+          console.warn('[SpeechSynthesis Error, ativando fallback online]', err);
           if (!hasEnded) {
             hasEnded = true;
             if (safetyTimeout) clearTimeout(safetyTimeout);
-            activeUtterance = null;
+            window._activeUtterance = null;
             speakTicketOnline(phrase).then(resolve);
           }
         };
 
-        // Timeout de segurança longo (6s) apenas para caso o motor do browser congele
+        // Timeout estrito de segurança (5s)
         safetyTimeout = setTimeout(() => {
+          window.speechSynthesis.cancel();
           finish();
-        }, 6000);
+        }, 5000);
 
-        window.speechSynthesis.speak(activeUtterance);
+        window.speechSynthesis.speak(utterance);
         return;
       } catch (err) {
-        console.error('[Voz Nativa Error]', err);
+        console.error('[Voz Nativa Exception]', err);
       }
     }
 
@@ -353,10 +380,8 @@ export function speakTicket(number, desk) {
   });
 }
 
-export async function announceTicket(number, desk) {
+export async function announceTicket(ticket) {
   unlockAudio();
   await playChimeSound();
-  await speakTicket(number, desk);
+  await speakTicket(ticket);
 }
-
-

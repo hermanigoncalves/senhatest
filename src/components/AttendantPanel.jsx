@@ -4,7 +4,7 @@ import {
   callCustomVercel, repeatCallVercel, resetQueueVercel 
 } from '../utils/socket';
 import { 
-  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, Check
+  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, Check, Tv
 } from 'lucide-react';
 
 export default function AttendantPanel() {
@@ -20,8 +20,9 @@ export default function AttendantPanel() {
   const [initialNumber, setInitialNumber] = useState('');
   const [initialSaved, setInitialSaved] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
+  const [isCalling, setIsCalling] = useState(false);
 
-  const isVercelHost = window.location.hostname.includes('vercel.app');
+  const isVercelHost = typeof window !== 'undefined' && window.location.hostname.includes('vercel.app');
 
   const updateState = (state) => {
     if (state) setQueueState(state);
@@ -31,7 +32,7 @@ export default function AttendantPanel() {
     fetch('/api/info')
       .then(res => res.json())
       .then(data => {
-        if (data.state) updateState(data.state);
+        if (data?.state) updateState(data.state);
       })
       .catch(() => {});
 
@@ -42,10 +43,14 @@ export default function AttendantPanel() {
     socket.on('state-update', onStateUpdate);
     if (socket.connected) socket.emit('get-state');
 
+    // Polling inteligente e aliviado a cada 2s
     const interval = setInterval(async () => {
       const state = await fetchVercelState();
-      if (state) updateState(state);
-    }, 500);
+      if (state) {
+        if (state.state) updateState(state.state);
+        else if (state.currentTicket || state.counter !== undefined) updateState(state);
+      }
+    }, 2000);
 
     return () => {
       socket.off('state-update', onStateUpdate);
@@ -54,13 +59,12 @@ export default function AttendantPanel() {
   }, []);
 
   const handleSetInitial = async (e) => {
-    e.preventDefault();
+    e?.preventDefault();
     if (!initialNumber.trim()) return;
 
     const num = parseInt(initialNumber.trim(), 10);
     if (isNaN(num) || num < 1 || num > 1000) return;
 
-    // Atualiza a interface do front-end imediatamente
     updateState({ ...queueState, counter: num - 1 });
 
     if (isVercelHost || !socket.connected) {
@@ -76,35 +80,53 @@ export default function AttendantPanel() {
   };
 
   const handleCallNext = async () => {
-    if (isVercelHost || !socket.connected) {
-      const res = await callNextVercel(selectedDesk);
-      if (res?.state) updateState(res.state);
-    } else {
-      socket.emit('call-next', { desk: selectedDesk });
+    if (isCalling) return;
+    setIsCalling(true);
+
+    try {
+      if (isVercelHost || !socket.connected) {
+        const res = await callNextVercel(selectedDesk);
+        if (res?.state) updateState(res.state);
+      } else {
+        socket.emit('call-next', { desk: selectedDesk });
+      }
+    } finally {
+      setTimeout(() => setIsCalling(false), 1000);
     }
   };
 
   const handleRepeatCall = async () => {
-    if (!queueState.currentTicket) return;
-    if (isVercelHost || !socket.connected) {
-      const res = await repeatCallVercel(queueState.currentTicket, selectedDesk);
-      if (res?.state) updateState(res.state);
-    } else {
-      socket.emit('repeat-call', { desk: selectedDesk });
+    if (!queueState.currentTicket || isCalling) return;
+    setIsCalling(true);
+
+    try {
+      if (isVercelHost || !socket.connected) {
+        const res = await repeatCallVercel(queueState.currentTicket, selectedDesk);
+        if (res?.state) updateState(res.state);
+      } else {
+        socket.emit('repeat-call', { desk: selectedDesk });
+      }
+    } finally {
+      setTimeout(() => setIsCalling(false), 1000);
     }
   };
 
   const handleCallCustom = async (e) => {
-    e.preventDefault();
-    if (!customNumber.trim()) return;
+    e?.preventDefault();
+    if (!customNumber.trim() || isCalling) return;
+    setIsCalling(true);
 
-    if (isVercelHost || !socket.connected) {
-      const res = await callCustomVercel(customNumber.trim(), selectedDesk);
-      if (res?.state) updateState(res.state);
-    } else {
-      socket.emit('call-custom', { number: customNumber.trim(), desk: selectedDesk });
+    try {
+      if (isVercelHost || !socket.connected) {
+        const res = await callCustomVercel(customNumber.trim(), selectedDesk);
+        if (res?.state) updateState(res.state);
+      } else {
+        socket.emit('call-custom', { number: customNumber.trim(), desk: selectedDesk });
+      }
+      setCustomNumber('');
+    } finally {
+      setTimeout(() => setIsCalling(false), 1000);
     }
-    setCustomNumber('');
   };
 
   const handleResetQueue = async () => {
@@ -132,7 +154,7 @@ export default function AttendantPanel() {
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         
-        {/* CABEÇALHO CMIP VERDE */}
+        {/* CABEÇALHO CMIP */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-6 bg-cmip-900/90 border border-cmip-600/30 rounded-3xl shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-5">
             <div className="bg-white p-3 rounded-2xl shadow-lg border border-cmip-100 max-w-[200px]">
@@ -140,10 +162,22 @@ export default function AttendantPanel() {
             </div>
             <div>
               <h1 className="text-xl md:text-2xl font-black tracking-tight text-white uppercase flex items-center gap-2">
-                <span className="text-cmip-400">CMIP</span> Atendimento
+                <span className="text-cmip-400">CMIP</span> Atendimento de Senhas
               </h1>
               <p className="text-xs text-cmip-100 font-semibold tracking-wider uppercase">Centro Médico Integrado Piratininga</p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <a
+              href="/tv"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-400 font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-2 transition-colors shadow-md"
+            >
+              <Tv className="w-4 h-4" />
+              <span>Abrir TV em Nova Aba</span>
+            </a>
           </div>
         </header>
 
@@ -166,13 +200,13 @@ export default function AttendantPanel() {
                   onChange={(e) => setSelectedDesk(e.target.value)}
                   className="w-full bg-cmip-950 border border-cmip-500/50 text-white rounded-xl px-4 py-3 font-bold text-sm focus:outline-none focus:border-cmip-400"
                 >
-                  {queueState.desks.map(desk => (
+                  {(queueState.desks || ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']).map(desk => (
                     <option key={desk} value={desk}>{desk}</option>
                   ))}
                 </select>
               </div>
 
-              {/* CAMPO NOVO: DEFINIR SENHA INICIAL DA FILA */}
+              {/* DEFINIR SENHA INICIAL DA FILA */}
               <div className="p-6 bg-cmip-900/70 border border-cmip-600/30 rounded-3xl glass-panel space-y-3">
                 <h2 className="text-sm font-bold text-cmip-100 uppercase tracking-wider flex items-center gap-2">
                   <SlidersHorizontal className="w-4 h-4 text-cmip-400" />
@@ -216,15 +250,16 @@ export default function AttendantPanel() {
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 relative z-10">
                 <button
                   onClick={handleCallNext}
-                  className="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 rounded-2xl font-black text-xl shadow-xl shadow-cmip-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3"
+                  disabled={isCalling}
+                  className="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 rounded-2xl font-black text-xl shadow-xl shadow-cmip-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                 >
                   <Play className="w-7 h-7 fill-cmip-950" />
-                  <span>CHAMAR PRÓXIMA</span>
+                  <span>{isCalling ? 'CHAMANDO...' : 'CHAMAR PRÓXIMA'}</span>
                 </button>
 
                 <button
                   onClick={handleRepeatCall}
-                  disabled={!queueState.currentTicket}
+                  disabled={!queueState.currentTicket || isCalling}
                   className="w-full sm:w-auto px-6 py-5 bg-cmip-red hover:bg-cmip-red-hover disabled:opacity-40 disabled:hover:bg-cmip-red text-white rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-all shadow-lg"
                 >
                   <RotateCcw className="w-5 h-5" />
@@ -250,7 +285,8 @@ export default function AttendantPanel() {
                 />
                 <button
                   type="submit"
-                  className="px-6 py-3 bg-cmip-700 hover:bg-cmip-600 text-white font-bold rounded-xl border border-cmip-500/30 transition-colors"
+                  disabled={isCalling}
+                  className="px-6 py-3 bg-cmip-700 hover:bg-cmip-600 text-white font-bold rounded-xl border border-cmip-500/30 transition-colors disabled:opacity-50"
                 >
                   Chamar
                 </button>
@@ -266,10 +302,10 @@ export default function AttendantPanel() {
               
               <div className="my-6">
                 <div className="text-6xl font-black text-white tracking-tight drop-shadow-[0_4px_20px_rgba(74,222,128,0.4)]">
-                  {queueState.currentTicket ? queueState.currentTicket.number : '---'}
+                  {queueState.currentTicket ? (queueState.currentTicket.patientName || queueState.currentTicket.number) : '---'}
                 </div>
                 <div className="text-lg font-bold text-amber-300 mt-2">
-                  {queueState.currentTicket ? queueState.currentTicket.desk : 'Aguardando...'}
+                  {queueState.currentTicket ? (queueState.currentTicket.officeName || queueState.currentTicket.desk) : 'Aguardando...'}
                 </div>
               </div>
 
@@ -291,17 +327,17 @@ export default function AttendantPanel() {
               </h3>
 
               <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                {queueState.history.map((item, idx) => (
+                {(queueState.history || []).map((item, idx) => (
                   <div key={item.id || idx} className="p-3.5 rounded-xl bg-cmip-950/70 border border-cmip-600/30 flex items-center justify-between text-sm">
                     <div>
-                      <span className="font-bold text-white text-base">{item.number}</span>
-                      <span className="text-xs text-amber-300 font-semibold ml-3">{item.desk}</span>
+                      <span className="font-bold text-white text-base">{item.patientName || item.number}</span>
+                      <span className="text-xs text-amber-300 font-semibold ml-3">{item.officeName || item.desk}</span>
                     </div>
                     <span className="text-xs text-cmip-100/60 font-mono">{item.timestamp}</span>
                   </div>
                 ))}
 
-                {queueState.history.length === 0 && (
+                {(!queueState.history || queueState.history.length === 0) && (
                   <div className="py-8 text-center text-cmip-100/50 text-xs font-medium">
                     Nenhuma senha chamada ainda.
                   </div>

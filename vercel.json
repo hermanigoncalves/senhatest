@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/tv", "destination": "/index.html" },
-    { "source": "/atendente", "destination": "/index.html" }
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
