@@ -339,41 +339,6 @@ export default async function handler(req, res) {
       console.error('[Supabase Call Next Error]', err);
       return res.status(500).json({ error: err.message });
     }
-
-      const formattedNumber = String(nextCounter).padStart(4, '0');
-
-      const { data: inserted } = await supabaseAdmin
-        .from('tickets')
-        .insert([{
-          call_id: nextCallId,
-          number: formattedNumber,
-          raw_number: nextCounter,
-          desk: desk,
-          type: ticketType || 'Normal'
-        }])
-        .select();
-
-      const newTicket = {
-        id: inserted && inserted[0] ? inserted[0].id : Date.now(),
-        callId: nextCallId,
-        number: formattedNumber,
-        rawNumber: nextCounter,
-        desk: desk,
-        type: ticketType || 'Normal',
-        timestamp: formatBrasiliaTime(),
-        isRepeat: false
-      };
-
-      const state = await getSupabaseState();
-      return res.status(200).json({
-        success: true,
-        ticket: newTicket,
-        state
-      });
-    } catch (err) {
-      console.error('[Supabase Call Next Error]', err);
-      return res.status(500).json({ error: err.message });
-    }
   }
 
   return res.status(405).json({ error: 'Method not allowed' });

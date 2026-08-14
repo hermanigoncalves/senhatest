@@ -29,42 +29,53 @@ export default function TvPanel() {
     setAudioUnlocked(true);
   };
 
-  // Motor da Fila Sequencial Assíncrona de Áudio (FIFO)
+  // Motor da Fila Sequencial Assíncrona de Áudio (FIFO) com Proteção Anti-Travamento
   const processAudioQueue = async () => {
     if (isProcessingQueueRef.current) return;
     if (audioQueueRef.current.length === 0) return;
 
     isProcessingQueueRef.current = true;
 
-    while (audioQueueRef.current.length > 0) {
-      const nextTicket = audioQueueRef.current.shift();
-      if (!nextTicket) continue;
+    try {
+      while (audioQueueRef.current.length > 0) {
+        const nextTicket = audioQueueRef.current.shift();
+        if (!nextTicket) continue;
 
-      // 1. Atualiza visualmente o ticket atual na tela da TV
-      setCurrentTicket(nextTicket);
-      setHistory(prev => {
-        const filtered = prev.filter(t => t.id !== nextTicket.id && t.number !== nextTicket.number);
-        return [nextTicket, ...filtered].slice(0, 10);
-      });
+        // 1. Atualiza visualmente o ticket atual na tela da TV
+        setCurrentTicket(nextTicket);
+        setHistory(prev => {
+          const filtered = prev.filter(t => t.id !== nextTicket.id && t.number !== nextTicket.number);
+          return [nextTicket, ...filtered].slice(0, 10);
+        });
 
-      // 2. Dispara o efeito visual de destaque
-      setIsCalling(true);
+        // 2. Dispara o efeito visual de destaque
+        setIsCalling(true);
 
-      // 3. Toca o som (Bip + Voz) e AGUARDA COMPLETAR
-      try {
-        unlockAudio();
-        await announceTicket(nextTicket.number, nextTicket.desk);
-      } catch (err) {
-        console.error('Erro no anúncio sonoro de senha:', err);
+        // 3. Toca o som (Bip + Voz) com timeout estrito de 4.5s para NUNCA travar
+        try {
+          unlockAudio();
+          await Promise.race([
+            announceTicket(nextTicket.number, nextTicket.desk),
+            new Promise(resolve => setTimeout(resolve, 4500))
+          ]);
+        } catch (err) {
+          console.error('Erro no anúncio sonoro de senha:', err);
+        }
+
+        // 4. Intervalo de 3 segundos após a voz terminar antes de começar a próxima senha
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        setIsCalling(false);
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-
-      // 4. Intervalo de 3 segundos após a voz terminar antes de começar a próxima senha
-      await new Promise(resolve => setTimeout(resolve, 3000));
+    } catch (queueErr) {
+      console.error('[Audio Queue Error]', queueErr);
+    } finally {
+      isProcessingQueueRef.current = false;
       setIsCalling(false);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      if (audioQueueRef.current.length > 0) {
+        setTimeout(() => processAudioQueue(), 100);
+      }
     }
-
-    isProcessingQueueRef.current = false;
   };
 
   const enqueueTicketCall = (ticket) => {
