@@ -13,6 +13,7 @@ export default function TvPanel() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const lastAnnouncedCallIdRef = useRef(0);
+  const isFirstMountRef = useRef(true);
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
   const audioRef = useRef(null);
@@ -124,8 +125,9 @@ export default function TvPanel() {
         lastAnnouncedCallIdRef.current = 0;
         setCurrentTicket(null);
         setHistory([]);
-      } else if (state.currentTicket && lastAnnouncedCallIdRef.current === 0) {
-        lastAnnouncedCallIdRef.current = state.currentTicket.callId || state.currentTicket.id;
+      } else if (isFirstMountRef.current && state.currentTicket) {
+        isFirstMountRef.current = false;
+        lastAnnouncedCallIdRef.current = state.currentTicket.callId || state.currentTicket.id || 0;
         setCurrentTicket(state.currentTicket);
       }
 
@@ -163,14 +165,18 @@ export default function TvPanel() {
         setIsConnected(true);
 
         if (state.currentTicket) {
-          const currentCallId = state.currentTicket.callId || state.currentTicket.id;
+          const currentCallId = state.currentTicket.callId || state.currentTicket.id || 0;
 
-          if (lastAnnouncedCallIdRef.current === 0) {
-            // Primeira carga: registra o estado atual sem tocar áudios velhos
+          if (isFirstMountRef.current) {
+            // Apenas na primeira abertura da aba: registra o estado atual sem tocar áudios velhos do passado
+            isFirstMountRef.current = false;
             lastAnnouncedCallIdRef.current = currentCallId;
             setCurrentTicket(state.currentTicket);
             if (state.history) setHistory(state.history);
-          } else if (state.history && state.history.length > 0) {
+            return;
+          }
+
+          if (state.history && state.history.length > 0) {
             // Encontra todas as chamadas novas no histórico ainda não anunciadas
             const unannounced = state.history
               .filter(t => (t.callId || t.id) > lastAnnouncedCallIdRef.current)
@@ -186,6 +192,7 @@ export default function TvPanel() {
           }
         } else {
           // Banco zerado
+          isFirstMountRef.current = false;
           audioQueueRef.current = [];
           if (typeof window !== 'undefined' && window.speechSynthesis) {
             window.speechSynthesis.cancel();
