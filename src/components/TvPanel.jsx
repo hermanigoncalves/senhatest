@@ -39,7 +39,7 @@ export default function TvPanel() {
     try {
       while (audioQueueRef.current.length > 0) {
         const nextCall = audioQueueRef.current.shift();
-        if (!nextCall) continue;
+        if (!nextCall || nextCall.type === 'Sistema') continue;
 
         // 1. Atualiza visualmente o card principal da TV
         setCurrentTicket(nextCall);
@@ -51,7 +51,7 @@ export default function TvPanel() {
         // 2. Dispara destaque visual piscante
         setIsCalling(true);
 
-        // 3. Toca o Chime sonoro e fala o nome do paciente / consultório
+        // 3. Toca o Chime sonoro e fala a senha ou paciente
         try {
           unlockAudio();
           await Promise.race([
@@ -79,7 +79,7 @@ export default function TvPanel() {
   };
 
   const enqueueCall = (callItem) => {
-    if (!callItem) return;
+    if (!callItem || callItem.type === 'Sistema') return;
 
     // Gera chave única robusta para evitar repetição acidental sem bloquear chamadas legítimas
     const uniqueKey = callItem.id 
@@ -123,11 +123,11 @@ export default function TvPanel() {
     function onDisconnect() { setIsConnected(false); }
     
     function onPatientCalled(ticket) {
-      if (ticket) enqueueCall(ticket);
+      if (ticket && ticket.type !== 'Sistema') enqueueCall(ticket);
     }
 
     function onTicketCalled(ticket) {
-      if (ticket) enqueueCall(ticket);
+      if (ticket && ticket.type !== 'Sistema') enqueueCall(ticket);
     }
 
     function onQueueReset() {
@@ -154,16 +154,18 @@ export default function TvPanel() {
 
         if (isFirstMountRef.current) {
           isFirstMountRef.current = false;
-          if (state.currentTicket) {
+          if (state.currentTicket && state.currentTicket.type !== 'Sistema') {
             const firstKey = `id_${state.currentTicket.id}_${state.currentTicket.timestamp || ''}`;
             announcedKeysRef.current.add(firstKey);
             setCurrentTicket(state.currentTicket);
           }
-          if (state.history) setHistory(state.history);
+          if (state.history) {
+            setHistory(state.history.filter(h => h.type !== 'Sistema'));
+          }
           return;
         }
 
-        if (state.currentTicket) {
+        if (state.currentTicket && state.currentTicket.type !== 'Sistema') {
           const key = `id_${state.currentTicket.id}_${state.currentTicket.timestamp || ''}`;
           if (!announcedKeysRef.current.has(key)) {
             enqueueCall(state.currentTicket);
@@ -171,7 +173,7 @@ export default function TvPanel() {
         }
 
         if (state.history && !isProcessingQueueRef.current) {
-          setHistory(state.history);
+          setHistory(state.history.filter(h => h.type !== 'Sistema'));
         }
       }
     }, 2000);
@@ -283,7 +285,7 @@ export default function TvPanel() {
       {/* CORPO PRINCIPAL DA TV */}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-5 p-5 md:p-6 items-stretch relative z-10 min-h-0 overflow-hidden">
         
-        {/* CARD PRINCIPAL (PACIENTE OU SENHA EM DESTAQUE) */}
+        {/* CARD PRINCIPAL */}
         <div className="lg:col-span-8 flex flex-col justify-center min-h-0">
           <div className={`h-full rounded-3xl p-6 lg:p-10 flex flex-col justify-between items-center text-center transition-all duration-500 glass-panel min-h-0 relative overflow-hidden ${
             isCalling 
@@ -299,7 +301,7 @@ export default function TvPanel() {
                     ? 'bg-amber-400 text-slate-950 animate-pulse flex items-center gap-1.5' 
                     : 'bg-cmip-500 text-cmip-950'
                 }`}>
-                  {isPriority ? <><Star className="w-4 h-4 fill-current" /> ATENDIMENTO PREFERENCIAL</> : 'CHAMADA DE PACIENTE'}
+                  {isPriority ? <><Star className="w-4 h-4 fill-current" /> ATENDIMENTO PREFERENCIAL</> : 'SENHA CMIP'}
                 </span>
               </div>
 
@@ -309,11 +311,11 @@ export default function TvPanel() {
               </div>
             </div>
 
-            {/* CENTRO: NOME DO PACIENTE OU NÚMERO */}
+            {/* CENTRO: NOME OU NÚMERO */}
             <div className="my-auto py-4 flex flex-col items-center justify-center max-w-4xl">
-              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">PACIENTE</p>
+              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">SENHA ATUAL</p>
               
-              <div className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)] line-clamp-2 leading-tight uppercase">
+              <div className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)] line-clamp-2 leading-tight uppercase">
                 {displayName}
               </div>
 
@@ -325,7 +327,7 @@ export default function TvPanel() {
               )}
             </div>
 
-            {/* RODAPÉ DO CARD: CONSULTÓRIO / LOCAL */}
+            {/* RODAPÉ DO CARD */}
             <div className="w-full pt-5 border-t border-cmip-600/30 flex flex-col items-center shrink-0">
               <p className="text-[11px] md:text-xs text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">LOCAL DE ATENDIMENTO</p>
               <div className="text-3xl sm:text-4xl lg:text-5xl font-black text-amber-300 tracking-wide uppercase drop-shadow-md">
@@ -336,7 +338,7 @@ export default function TvPanel() {
           </div>
         </div>
 
-        {/* HISTÓRICO LATERAL DAS ÚLTIMAS CHAMADAS */}
+        {/* HISTÓRICO LATERAL */}
         <div className="lg:col-span-4 flex flex-col justify-between min-h-0">
           <div className="h-full rounded-3xl p-5 bg-cmip-900/60 border border-cmip-600/30 glass-panel flex flex-col justify-between min-h-0 overflow-hidden shadow-2xl">
             <div className="flex-1 flex flex-col min-h-0">
@@ -380,10 +382,10 @@ export default function TvPanel() {
 
             <div className="pt-4 border-t border-cmip-600/30 text-center shrink-0 mt-2">
               <span className="inline-block px-3 py-1 bg-cmip-red text-white font-extrabold text-[10px] uppercase tracking-wider rounded-full shadow-md mb-1">
-                Atendimento Médico CMIP
+                Agendamento CMIP
               </span>
               <p className="text-[10px] text-cmip-100/70 font-medium">
-                Aguarde ser chamado pelo nome. Mantenha seu documento em mãos.
+                Atendimento por ordem de chamada. Mantenha seu documento em mãos.
               </p>
             </div>
           </div>

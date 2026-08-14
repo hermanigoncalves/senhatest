@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { 
   socket, fetchVercelState, setInitialTicketVercel, callNextVercel, 
-  callCustomVercel, repeatCallVercel, resetQueueVercel 
+  callCustomVercel, repeatCallVercel, resetQueueVercel, callWaitingTicketVercel 
 } from '../utils/socket';
 import { 
-  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, Check, Tv
+  Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, 
+  Check, Tv, Tablet, Star, Bell, Clock, AlertCircle, ArrowRight
 } from 'lucide-react';
 
 export default function AttendantPanel() {
@@ -12,6 +13,7 @@ export default function AttendantPanel() {
     counter: 0,
     currentTicket: null,
     history: [],
+    waitingQueue: [],
     desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
   });
 
@@ -48,7 +50,7 @@ export default function AttendantPanel() {
       const state = await fetchVercelState();
       if (state) {
         if (state.state) updateState(state.state);
-        else if (state.currentTicket || state.counter !== undefined) updateState(state);
+        else if (state.currentTicket || state.counter !== undefined || state.waitingQueue) updateState(state);
       }
     }, 2000);
 
@@ -79,6 +81,7 @@ export default function AttendantPanel() {
     setInitialNumber('');
   };
 
+  // Chama a próxima senha (se houver na fila do Totem, chama a prioridade/próxima; senão segue sequência)
   const handleCallNext = async () => {
     if (isCalling) return;
     setIsCalling(true);
@@ -89,6 +92,23 @@ export default function AttendantPanel() {
         if (res?.state) updateState(res.state);
       } else {
         socket.emit('call-next', { desk: selectedDesk });
+      }
+    } finally {
+      setTimeout(() => setIsCalling(false), 1000);
+    }
+  };
+
+  // Chama uma senha específica da fila de espera do Totem
+  const handleCallWaitingTicket = async (ticket) => {
+    if (isCalling || !ticket) return;
+    setIsCalling(true);
+
+    try {
+      if (isVercelHost || !socket.connected) {
+        const res = await callWaitingTicketVercel(ticket.id, selectedDesk);
+        if (res?.state) updateState(res.state);
+      } else {
+        socket.emit('call-waiting-ticket', { ticketId: ticket.id, desk: selectedDesk });
       }
     } finally {
       setTimeout(() => setIsCalling(false), 1000);
@@ -130,7 +150,7 @@ export default function AttendantPanel() {
   };
 
   const handleResetQueue = async () => {
-    updateState({ counter: 0, currentTicket: null, history: [], desks: queueState.desks });
+    updateState({ counter: 0, currentTicket: null, history: [], waitingQueue: [], desks: queueState.desks });
     if (isVercelHost || !socket.connected) {
       const res = await resetQueueVercel();
       if (res?.state) updateState(res.state);
@@ -140,7 +160,14 @@ export default function AttendantPanel() {
     setShowResetModal(false);
   };
 
-  const nextNumberToCall = queueState.counter >= 1000 ? 1 : queueState.counter + 1;
+  const waitingList = queueState.waitingQueue || [];
+  const normalWaiting = waitingList.filter(t => t.type !== 'Preferencial');
+  const prefWaiting = waitingList.filter(t => t.type === 'Preferencial');
+  const nextTicketFromQueue = prefWaiting.length > 0 ? prefWaiting[0] : (waitingList.length > 0 ? waitingList[0] : null);
+
+  const nextNumberToCall = nextTicketFromQueue 
+    ? nextTicketFromQueue.number 
+    : (queueState.counter >= 1000 ? 1 : queueState.counter + 1);
 
   return (
     <div className="min-h-screen bg-cmip-950 text-slate-100 font-['Montserrat',sans-serif] p-4 md:p-8 cmip-plus-pattern relative">
@@ -154,7 +181,7 @@ export default function AttendantPanel() {
 
       <div className="max-w-7xl mx-auto space-y-8 relative z-10">
         
-        {/* CABEÇALHO CMIP */}
+        {/* CABEÇALHO CMIP COM ATALHOS */}
         <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-6 bg-cmip-900/90 border border-cmip-600/30 rounded-3xl shadow-2xl backdrop-blur-md">
           <div className="flex items-center gap-5">
             <div className="bg-white p-3 rounded-2xl shadow-lg border border-cmip-100 max-w-[200px]">
@@ -168,7 +195,18 @@ export default function AttendantPanel() {
             </div>
           </div>
 
+          {/* ATALHOS RÁPIDOS (TOTEM E TV) */}
           <div className="flex items-center gap-3">
+            <a
+              href="/tablet"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-transform active:scale-95"
+            >
+              <Tablet className="w-4 h-4" />
+              <span>Abrir Totem (Tablet)</span>
+            </a>
+
             <a
               href="/tv"
               target="_blank"
@@ -176,10 +214,97 @@ export default function AttendantPanel() {
               className="px-4 py-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-400 font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-2 transition-colors shadow-md"
             >
               <Tv className="w-4 h-4" />
-              <span>Abrir TV em Nova Aba</span>
+              <span>Abrir TV</span>
             </a>
           </div>
         </header>
+
+        {/* SEÇÃO DA FILA DO TOTEM (AGUARDANDO ATENDIMENTO) */}
+        <div className="p-6 bg-cmip-900/80 border border-cmip-600/40 rounded-3xl glass-panel space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-cmip-600/30 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-amber-500/20 text-amber-300 rounded-xl">
+                <Tablet className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  Fila de Espera do Totem (Aguardando Chamada)
+                </h2>
+                <p className="text-xs text-cmip-100/70">
+                  Senhas retiradas no tablet. Só aparecem na TV após você clicar em "Chamar".
+                </p>
+              </div>
+            </div>
+
+            {/* Badges com contagem */}
+            <div className="flex items-center gap-2">
+              <span className="px-3 py-1 bg-amber-400 text-slate-950 text-xs font-black rounded-lg shadow flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 fill-current" />
+                {prefWaiting.length} Preferenciais
+              </span>
+
+              <span className="px-3 py-1 bg-cmip-800 text-cmip-300 border border-cmip-500/30 text-xs font-black rounded-lg shadow flex items-center gap-1">
+                <Users className="w-3.5 h-3.5" />
+                {normalWaiting.length} Normais
+              </span>
+            </div>
+          </div>
+
+          {/* LISTA DE SENHAS AGUARDANDO */}
+          {waitingList.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {waitingList.map((ticket, idx) => {
+                const isPref = ticket.type === 'Preferencial';
+                return (
+                  <div
+                    key={ticket.id || idx}
+                    className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-2 shadow-md ${
+                      isPref 
+                        ? 'bg-amber-950/60 border-amber-500/50 hover:border-amber-400' 
+                        : 'bg-cmip-950/90 border-cmip-600/40 hover:border-cmip-500/60'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-black text-white">{ticket.number}</span>
+                        {isPref ? (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-400 text-slate-950 text-[9px] font-black uppercase">
+                            Pref
+                          </span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-cmip-500 text-cmip-950 text-[9px] font-bold uppercase">
+                            Normal
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-cmip-100/60 font-mono mt-0.5 block">
+                        Retirada às {ticket.timestamp}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={() => handleCallWaitingTicket(ticket)}
+                      disabled={isCalling}
+                      className={`px-3 py-1.5 rounded-xl font-black text-xs flex items-center gap-1 transition-transform active:scale-95 shadow ${
+                        isPref
+                          ? 'bg-amber-400 hover:bg-amber-300 text-slate-950'
+                          : 'bg-cmip-500 hover:bg-cmip-400 text-cmip-950'
+                      }`}
+                    >
+                      <Bell className="w-3.5 h-3.5" />
+                      <span>Chamar</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="py-4 text-center text-cmip-100/50 text-xs font-semibold flex items-center justify-center gap-2">
+              <Check className="w-4 h-4 text-emerald-400" />
+              <span>Nenhuma senha aguardando na fila do Totem no momento.</span>
+            </div>
+          )}
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
@@ -241,10 +366,16 @@ export default function AttendantPanel() {
 
               <div>
                 <span className="text-xs font-bold tracking-widest text-cmip-400 uppercase">
-                  Próxima Senha a Ser Chamada: <strong className="text-white text-sm bg-cmip-950 px-3 py-1 rounded-lg border border-cmip-500/30">{String(nextNumberToCall).padStart(4, '0')}</strong>
+                  Próxima Senha a Ser Chamada: <strong className="text-white text-sm bg-cmip-950 px-3 py-1 rounded-lg border border-cmip-500/30">
+                    {typeof nextNumberToCall === 'string' ? nextNumberToCall : String(nextNumberToCall).padStart(4, '0')}
+                  </strong>
                 </span>
                 <h3 className="text-3xl font-black text-white mt-3">Chamar Próximo Paciente</h3>
-                <p className="text-xs text-cmip-100/80 mt-1">Praticidade e agilidade no seu atendimento!</p>
+                <p className="text-xs text-cmip-100/80 mt-1">
+                  {nextTicketFromQueue 
+                    ? `Chamando próximo da fila (${nextTicketFromQueue.type}) para o ${selectedDesk}` 
+                    : 'Avança a sequência tradicional de atendimento'}
+                </p>
               </div>
 
               <div className="flex flex-col sm:flex-row items-center justify-center gap-4 relative z-10">
@@ -254,7 +385,7 @@ export default function AttendantPanel() {
                   className="w-full sm:w-auto px-10 py-5 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 rounded-2xl font-black text-xl shadow-xl shadow-cmip-500/30 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50"
                 >
                   <Play className="w-7 h-7 fill-cmip-950" />
-                  <span>{isCalling ? 'CHAMANDO...' : 'CHAMAR PRÓXIMA'}</span>
+                  <span>{isCalling ? 'CHAMANDO NA TV...' : 'CHAMAR PRÓXIMA'}</span>
                 </button>
 
                 <button
@@ -272,13 +403,13 @@ export default function AttendantPanel() {
             <div className="p-6 bg-cmip-900/70 border border-cmip-600/30 rounded-3xl glass-panel">
               <h3 className="text-sm font-bold text-cmip-100 uppercase tracking-wider mb-4 flex items-center gap-2">
                 <Hash className="w-4 h-4 text-cmip-400" />
-                Chamar Número Específico (Ex: 0045 ou 500)
+                Chamar Número Específico (Ex: 0045 ou N010)
               </h3>
 
               <form onSubmit={handleCallCustom} className="flex gap-3">
                 <input
                   type="text"
-                  placeholder="Ex: 45 ou 0045"
+                  placeholder="Ex: 45, N001 ou P005"
                   value={customNumber}
                   onChange={(e) => setCustomNumber(e.target.value)}
                   className="flex-1 bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3 font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/40"
@@ -323,7 +454,7 @@ export default function AttendantPanel() {
 
             <div className="p-6 bg-cmip-900/60 border border-cmip-600/30 rounded-3xl glass-panel">
               <h3 className="text-sm font-bold text-cmip-100 uppercase tracking-wider mb-4">
-                Histórico Recente CMIP
+                Histórico Recente na TV
               </h3>
 
               <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
@@ -339,7 +470,7 @@ export default function AttendantPanel() {
 
                 {(!queueState.history || queueState.history.length === 0) && (
                   <div className="py-8 text-center text-cmip-100/50 text-xs font-medium">
-                    Nenhuma senha chamada ainda.
+                    Nenhuma senha chamada na TV ainda.
                   </div>
                 )}
               </div>
@@ -359,7 +490,7 @@ export default function AttendantPanel() {
 
             <div>
               <h3 className="text-xl font-bold text-white">Zerar Fila CMIP?</h3>
-              <p className="text-sm text-cmip-100/70 mt-2">O próximo número chamado iniciará novamente em 0001.</p>
+              <p className="text-sm text-cmip-100/70 mt-2">O próximo número chamado iniciará novamente em 0001 e a fila do Totem será limpa.</p>
             </div>
 
             <div className="flex gap-3 pt-2">

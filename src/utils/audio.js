@@ -1,11 +1,11 @@
 // Motor de Áudio & Voz Híbrido CMIP para TV com Seleção de Vozes Nativas em PT-BR
-// Blindagem contra congelamento do Chromium (Heartbeat, Global Anchoring & Auto-Resume)
+// Blindagem contra congelamento do Chromium e cancelamento assíncrono
 
 let audioCtx = null;
 let ptVoice = null;
 let chimeAudioElement = null;
 
-// Garante que o motor do navegador nunca entre em sono silencioso
+// Mantém o motor de síntese acordado
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   setInterval(() => {
     try {
@@ -13,7 +13,7 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.resume();
       }
     } catch (e) {}
-  }, 3000);
+  }, 2500);
 }
 
 function generateChimeDataUri() {
@@ -29,11 +29,11 @@ function generateChimeDataUri() {
 
     if (t < 0.45) {
       freq = 783.99; // "Ding"
-      vol = Math.max(0, 1 - t / 0.45) * 0.8;
+      vol = Math.max(0, 1 - t / 0.45) * 0.85;
     } else if (t >= 0.35 && t < 1.2) {
       const t2 = t - 0.35;
       freq = 659.25; // "Dong"
-      vol = Math.max(0, 1 - t2 / 0.85) * 0.9;
+      vol = Math.max(0, 1 - t2 / 0.85) * 0.95;
     }
 
     const sample = Math.sin(2 * Math.PI * freq * t) * vol * 32767;
@@ -74,17 +74,16 @@ export const chimeDataUri = generateChimeDataUri();
 /**
  * Carrega e seleciona a melhor voz disponível em PT-BR
  */
-function loadVoices() {
+export function getPtVoice() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
-
   const voices = window.speechSynthesis.getVoices();
   if (!voices || voices.length === 0) return null;
 
-  const ptVoices = voices.filter(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')));
+  const ptVoices = voices.filter(v => v.lang && (v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang.toLowerCase().includes('pt')));
 
   if (ptVoices.length > 0) {
     const preferredVoice = ptVoices.find(v => 
-      /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português/i.test(v.name)
+      /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português|microsoft.*maria/i.test(v.name)
     );
     ptVoice = preferredVoice || ptVoices[0];
   } else {
@@ -94,10 +93,10 @@ function loadVoices() {
 }
 
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  loadVoices();
+  getPtVoice();
   if (window.speechSynthesis.onvoiceschanged !== undefined) {
     window.speechSynthesis.onvoiceschanged = () => {
-      loadVoices();
+      getPtVoice();
     };
   }
 }
@@ -144,7 +143,7 @@ export function warmupAudio() {
       osc.stop(ctx.currentTime + 0.05);
     }
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      loadVoices();
+      getPtVoice();
       const warmup = new SpeechSynthesisUtterance(' ');
       warmup.volume = 0.01;
       warmup.rate = 10;
@@ -179,27 +178,27 @@ export function playChimeSound() {
           osc1.type = 'sine';
           osc1.frequency.setValueAtTime(783.99, now);
           gain1.gain.setValueAtTime(0, now);
-          gain1.gain.linearRampToValueAtTime(0.8, now + 0.02);
-          gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+          gain1.gain.linearRampToValueAtTime(0.85, now + 0.02);
+          gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
           osc1.connect(gain1);
           gain1.connect(ctx.destination);
           osc1.start(now);
-          osc1.stop(now + 0.3);
+          osc1.stop(now + 0.35);
 
           // Nota 2: "Dong" (E5 - 659.25Hz)
           const osc2 = ctx.createOscillator();
           const gain2 = ctx.createGain();
           osc2.type = 'sine';
-          osc2.frequency.setValueAtTime(659.25, now + 0.15);
-          gain2.gain.setValueAtTime(0, now + 0.15);
-          gain2.gain.linearRampToValueAtTime(0.9, now + 0.17);
-          gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+          osc2.frequency.setValueAtTime(659.25, now + 0.2);
+          gain2.gain.setValueAtTime(0, now + 0.2);
+          gain2.gain.linearRampToValueAtTime(0.95, now + 0.22);
+          gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
           osc2.connect(gain2);
           gain2.connect(ctx.destination);
-          osc2.start(now + 0.15);
-          osc2.stop(now + 0.38);
+          osc2.start(now + 0.2);
+          osc2.stop(now + 0.5);
 
-          setTimeout(safeResolve, 220);
+          setTimeout(safeResolve, 450);
           return;
         } catch (e) {}
       }
@@ -214,139 +213,69 @@ export function playChimeSound() {
       chimeAudioElement.play().catch(() => {});
     } catch (e) {}
 
-    setTimeout(safeResolve, 220);
+    setTimeout(safeResolve, 450);
   });
 }
 
 /**
- * Formata o texto para fala dependendo se for chamada médica nominal ou senha numérica
+ * Formata o texto para fala perfeitamente em português (senha e guichê)
  */
-export function formatMedicalSpeech(ticket) {
-  if (!ticket) return 'Próximo atendimento CMIP';
+export function formatTicketSpeech(ticket) {
+  if (!ticket) return 'Atenção. Próximo atendimento CMIP.';
 
-  // Se for chamada nominal de paciente
+  // Se houver nome de paciente nominal
   if (ticket.patientName || ticket.patient_name) {
     const patient = (ticket.patientName || ticket.patient_name || '').trim();
     const office = (ticket.officeName || ticket.office_name || ticket.desk || 'Consultório').trim();
-    const doctor = (ticket.doctorName || ticket.doctor_name || '').trim();
     const isPriority = ticket.type === 'Preferencial';
-
-    let prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
-    let phrase = `${prefix}Paciente ${patient}, dirigir-se ao ${office}`;
-    if (doctor) {
-      phrase += `, ${doctor}`;
-    }
-    return phrase;
+    const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
+    return `${prefix}Paciente ${patient}, dirigir-se ao ${office}.`;
   }
 
-  // Fallback para senha numérica tradicional
-  let cleanNumber = String(ticket.number || '').replace(/^0+/, '');
+  // Senha numérica tradicional (Ex: "Senha 1, Guichê 1")
+  let rawNumberStr = String(ticket.number || ticket.rawNumber || '0').trim();
+  let cleanNumber = rawNumberStr.replace(/^0+/, '');
   if (!cleanNumber) cleanNumber = '0';
-  let cleanDesk = String(ticket.desk || 'Atendimento').replace(/0+(\d+)/, '$1');
-  return `Senha ${cleanNumber}, ${cleanDesk}`;
-}
 
-export function speakTicketOnline(phrase) {
-  return new Promise((resolve) => {
-    const text = encodeURIComponent(phrase);
-    const ttsUrls = [
-      `https://api.streamelements.com/kappa/v2/speech?voice=Vitoria&text=${text}`,
-      `https://translate.google.com/translate_tts?ie=UTF-8&q=${text}&tl=pt-BR&client=tw-ob`
-    ];
+  let rawDesk = String(ticket.officeName || ticket.desk || 'Guichê 1').trim();
+  let cleanDesk = rawDesk.replace(/0+(\d+)/, '$1');
 
-    let urlIdx = 0;
+  if (ticket.type === 'Preferencial') {
+    return `Atenção, atendimento preferencial. Senha ${cleanNumber}, ${cleanDesk}.`;
+  }
 
-    function playUrl() {
-      if (urlIdx >= ttsUrls.length) {
-        return resolve();
-      }
-
-      const currentUrl = ttsUrls[urlIdx];
-      urlIdx++;
-
-      try {
-        const audio = new Audio(currentUrl);
-        audio.volume = 1.0;
-
-        let hasResolved = false;
-        const done = () => {
-          if (!hasResolved) {
-            hasResolved = true;
-            resolve();
-          }
-        };
-
-        const timer = setTimeout(() => {
-          if (!hasResolved) {
-            hasResolved = true;
-            playUrl();
-          }
-        }, 3000);
-
-        audio.onended = () => {
-          clearTimeout(timer);
-          done();
-        };
-
-        audio.onerror = () => {
-          clearTimeout(timer);
-          if (!hasResolved) {
-            hasResolved = true;
-            playUrl();
-          }
-        };
-
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.then(() => {}).catch(() => {
-            clearTimeout(timer);
-            if (!hasResolved) {
-              hasResolved = true;
-              playUrl();
-            }
-          });
-        }
-      } catch (e) {
-        playUrl();
-      }
-    }
-
-    playUrl();
-  });
+  return `Senha ${cleanNumber}, ${cleanDesk}.`;
 }
 
 export function speakTicket(ticket) {
   return new Promise((resolve) => {
-    const phrase = typeof ticket === 'string' ? ticket : formatMedicalSpeech(ticket);
-    const isSamsungTv = typeof navigator !== 'undefined' && /Tizen|SmartTV|Samsung/i.test(navigator.userAgent);
+    const phrase = typeof ticket === 'string' ? ticket : formatTicketSpeech(ticket);
 
-    if (!isSamsungTv && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       try {
-        window.speechSynthesis.cancel();
         window.speechSynthesis.resume();
 
-        const voices = window.speechSynthesis.getVoices();
-        const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')))) || (voices && voices[0]);
-
+        const selectedVoice = getPtVoice();
         const utterance = new SpeechSynthesisUtterance(phrase);
         utterance.lang = 'pt-BR';
-        utterance.rate = 0.93; // Cadência pausada e elegante para ambiente de saúde
+        utterance.rate = 0.95; // Velocidade natural e clara
         utterance.pitch = 1.0;
         utterance.volume = 1.0;
-        if (validPtVoice) {
-          utterance.voice = validPtVoice;
+
+        if (selectedVoice) {
+          utterance.voice = selectedVoice;
         }
 
-        // ANCORAMENTO GLOBAL CONTRA GARBAGE COLLECTION DO CHROMIUM
+        // Ancoramento global para evitar GC no Chromium
         window._activeUtterance = utterance;
 
         let hasEnded = false;
-        let safetyTimeout = null;
+        let safetyTimer = null;
 
         const finish = () => {
           if (!hasEnded) {
             hasEnded = true;
-            if (safetyTimeout) clearTimeout(safetyTimeout);
+            if (safetyTimer) clearTimeout(safetyTimer);
             window._activeUtterance = null;
             resolve();
           }
@@ -354,29 +283,31 @@ export function speakTicket(ticket) {
 
         utterance.onend = finish;
         utterance.onerror = (err) => {
-          console.warn('[SpeechSynthesis Error, ativando fallback online]', err);
-          if (!hasEnded) {
-            hasEnded = true;
-            if (safetyTimeout) clearTimeout(safetyTimeout);
-            window._activeUtterance = null;
-            speakTicketOnline(phrase).then(resolve);
-          }
+          console.warn('[SpeechSynthesis Error]', err);
+          finish();
         };
 
-        // Timeout estrito de segurança (5s)
-        safetyTimeout = setTimeout(() => {
-          window.speechSynthesis.cancel();
+        // Trava máxima de 4.5 segundos por fala
+        safetyTimer = setTimeout(() => {
           finish();
-        }, 5000);
+        }, 4500);
 
-        window.speechSynthesis.speak(utterance);
+        // Se houver fala anterior rodando, cancela suavemente antes de falar
+        if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+          setTimeout(() => {
+            window.speechSynthesis.speak(utterance);
+          }, 60);
+        } else {
+          window.speechSynthesis.speak(utterance);
+        }
         return;
       } catch (err) {
-        console.error('[Voz Nativa Exception]', err);
+        console.error('[SpeechSynthesis Exception]', err);
       }
     }
 
-    speakTicketOnline(phrase).then(resolve);
+    resolve();
   });
 }
 

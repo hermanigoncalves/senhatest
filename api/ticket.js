@@ -24,14 +24,14 @@ export default async function handler(req, res) {
 
   const DESKS_LIST = ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP'];
 
-  // Helper para buscar o estado 100% atualizado do Supabase
+  // Helper para buscar o estado 100% atualizado do Supabase (TV + Fila de Espera)
   const getSupabaseState = async () => {
     try {
       const { data: allRows, error } = await supabase
         .from('tickets')
         .select('*')
         .order('id', { ascending: false })
-        .limit(20);
+        .limit(30);
 
       if (error || !allRows || allRows.length === 0) {
         return {
@@ -39,30 +39,33 @@ export default async function handler(req, res) {
           callSequence: 0,
           currentTicket: null,
           history: [],
+          waitingQueue: [],
           desks: DESKS_LIST
         };
       }
 
-      // Separa tickets reais dos marcadores de sistema (seeds)
-      const realTickets = allRows.filter(r => r.type !== 'Sistema');
-      const sequentialTickets = allRows.filter(r => r.type !== 'Custom' && r.type !== 'Sistema');
+      // Separa tickets:
+      // 1. Chamados na TV (desk != 'Aguardando' e type != 'Sistema')
+      // 2. Aguardando na Fila do Totem (desk = 'Aguardando')
+      const calledTickets = allRows.filter(r => r.type !== 'Sistema' && r.desk !== 'Aguardando');
+      const waitingTickets = allRows.filter(r => r.desk === 'Aguardando').reverse(); // ordem cronológica
       const latestOverall = allRows[0];
 
       let currentTicket = null;
       let history = [];
 
-      if (realTickets.length > 0) {
+      if (calledTickets.length > 0) {
         currentTicket = {
-          id: realTickets[0].id,
-          callId: realTickets[0].call_id || realTickets[0].id,
-          number: realTickets[0].number,
-          rawNumber: realTickets[0].raw_number,
-          desk: realTickets[0].desk,
-          type: realTickets[0].type,
-          timestamp: formatBrasiliaTime(new Date(realTickets[0].created_at))
+          id: calledTickets[0].id,
+          callId: calledTickets[0].call_id || calledTickets[0].id,
+          number: calledTickets[0].number,
+          rawNumber: calledTickets[0].raw_number,
+          desk: calledTickets[0].desk,
+          type: calledTickets[0].type,
+          timestamp: formatBrasiliaTime(new Date(calledTickets[0].created_at))
         };
 
-        history = realTickets.slice(0, 10).map(r => ({
+        history = calledTickets.slice(0, 10).map(r => ({
           id: r.id,
           callId: r.call_id || r.id,
           number: r.number,
@@ -73,13 +76,22 @@ export default async function handler(req, res) {
         }));
       }
 
-      const queueCounter = sequentialTickets.length > 0 ? (sequentialTickets[0].raw_number || 0) : (latestOverall.raw_number || 0);
+      const queueCounter = latestOverall ? (latestOverall.raw_number || 0) : 0;
+
+      const formattedWaiting = waitingTickets.map(r => ({
+        id: r.id,
+        number: r.number,
+        rawNumber: r.raw_number,
+        type: r.type,
+        timestamp: formatBrasiliaTime(new Date(r.created_at))
+      }));
 
       return {
         counter: queueCounter,
         callSequence: latestOverall.call_id || latestOverall.id || 0,
         currentTicket,
         history,
+        waitingQueue: formattedWaiting,
         desks: DESKS_LIST
       };
     } catch (err) {
@@ -89,6 +101,7 @@ export default async function handler(req, res) {
         callSequence: 0,
         currentTicket: null,
         history: [],
+        waitingQueue: [],
         desks: DESKS_LIST
       };
     }
@@ -102,7 +115,16 @@ export default async function handler(req, res) {
 
   // POST: Executa as ações alterando o Supabase
   if (req.method === 'POST') {
-    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber, number } = req.body || {};
+    const { 
+      action, 
+      desk = 'Guichê 01', 
+      ticketType = 'Normal', 
+      customNumber, 
+      initialNumber, 
+      number,
+      ticketId
+    } = req.body || {};
+
     const targetInitial = initialNumber !== undefined ? initialNumber : number;
 
     // 1. ZERAR FILA
@@ -121,25 +143,83 @@ export default async function handler(req, res) {
           callSequence: 0,
           currentTicket: null,
           history: [],
+          waitingQueue: [],
           desks: DESKS_LIST
         }
       });
     }
 
-    // 2. DEFINIR SENHA INICIAL (1 a 1000)
+    // 2. EMISSÃO DE SENHA PELO TOTEM/TABLET (NÃO vai para a TV, entra com desk='Aguardando')
+    if (action === 'issue-ticket') {
+      try {
+        const isPref = ticketType === 'Preferencial';
+        
+        // Busca a última senha emitida para incrementar o contador
+        const { data: latestRows } = await supabase
+          .from('tickets')
+          .select('*')
+          .neq('type', 'Custom')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        let nextCounter = 1;
+        if (latestRows && latestRows.length > 0) {
+          const lastNum = latestRows[0].raw_number || 0;
+          nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
+        }
+
+        // Formata o número (ex: N001 para normal ou P001 para preferencial)
+        const prefix = isPref ? 'P' : 'N';
+        const formattedNumber = `${prefix}${String(nextCounter).padStart(3, '0')}`;
+
+        // Insere com desk = 'Aguardando' para que fique apenas na fila de espera da recepção
+        const { data: inserted, error: insErr } = await supabaseAdmin
+          .from('tickets')
+          .insert([{
+            call_id: 0, // 0 indica que ainda não foi chamado na TV
+            number: formattedNumber,
+            raw_number: nextCounter,
+            desk: 'Aguardando',
+            type: isPref ? 'Preferencial' : 'Normal'
+          }])
+          .select();
+
+        if (insErr) throw insErr;
+
+        const now = new Date();
+        const issuedTicket = {
+          id: inserted && inserted[0] ? inserted[0].id : Date.now(),
+          number: formattedNumber,
+          rawNumber: nextCounter,
+          type: isPref ? 'Preferencial' : 'Normal',
+          desk: 'Aguardando',
+          timestamp: formatBrasiliaTime(now),
+          date: now.toLocaleDateString('pt-BR')
+        };
+
+        const state = await getSupabaseState();
+        return res.status(200).json({
+          success: true,
+          ticket: issuedTicket,
+          state
+        });
+      } catch (err) {
+        console.error('[Issue Ticket Error]', err);
+        return res.status(500).json({ error: err.message });
+      }
+    }
+
+    // 3. DEFINIR SENHA INICIAL (1 a 1000)
     if (action === 'set-initial-ticket' && targetInitial !== undefined && targetInitial !== null) {
       const num = parseInt(targetInitial, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
         try {
           if (num === 1) {
-            // Se for 1, limpa completamente a tabela para começar no 0001
             await supabaseAdmin.from('tickets').delete().gt('id', 0);
             await supabaseAdmin.from('tickets').delete().gte('raw_number', 0);
           } else {
-            // Se for maior que 1 (ex: 50 ou 10 vindo de 154), apaga registros >= num
             await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
 
-            // Verifica o último registro remanescente no banco
             const { data: latestRemaining } = await supabase
               .from('tickets')
               .select('*')
@@ -149,7 +229,6 @@ export default async function handler(req, res) {
             const lastCallId = latestRemaining && latestRemaining[0] ? (latestRemaining[0].call_id || latestRemaining[0].id) : 0;
             const lastRaw = latestRemaining && latestRemaining[0] ? latestRemaining[0].raw_number : -1;
 
-            // Se o último registro não for exatamente num - 1, insere um marcador para garantir que a próxima chamada seja num
             if (lastRaw !== num - 1) {
               await supabaseAdmin.from('tickets').insert([{
                 call_id: lastCallId + 1,
@@ -173,12 +252,13 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. RECHAMAR SENHA
+    // 4. RECHAMAR SENHA
     if (action === 'repeat') {
       try {
         const { data: latestRows } = await supabase
           .from('tickets')
           .select('*')
+          .neq('desk', 'Aguardando')
           .order('id', { ascending: false })
           .limit(10);
 
@@ -223,7 +303,7 @@ export default async function handler(req, res) {
       }
     }
 
-    // 4. CHAMAR NÚMERO ESPECÍFICO (CUSTOM) — NÃO ALTERA A CONTAGEM DA FILA
+    // 5. CHAMAR NÚMERO ESPECÍFICO (CUSTOM)
     if (action === 'call-custom' && customNumber) {
       let formattedNumber = String(customNumber).trim();
       let customRaw = 0;
@@ -242,8 +322,7 @@ export default async function handler(req, res) {
         const maxCallId = latestRows && latestRows[0] ? (latestRows[0].call_id || latestRows[0].id) : 0;
         const nextCallId = maxCallId + 1;
 
-        // Mantém a contagem sequencial anterior intacta
-        const seqRow = (latestRows || []).find(r => r.type !== 'Custom' && r.type !== 'Sistema');
+        const seqRow = (latestRows || []).find(r => r.type !== 'Custom');
         const currentQueueCounter = seqRow ? seqRow.raw_number : 0;
 
         const { data: inserted } = await supabaseAdmin
@@ -253,7 +332,7 @@ export default async function handler(req, res) {
             number: formattedNumber,
             raw_number: currentQueueCounter,
             desk: desk,
-            type: 'Custom'
+            type: ticketType || 'Custom'
           }])
           .select();
 
@@ -263,7 +342,7 @@ export default async function handler(req, res) {
           number: formattedNumber,
           rawNumber: currentQueueCounter,
           desk: desk,
-          type: 'Custom',
+          type: ticketType || 'Custom',
           timestamp: formatBrasiliaTime(),
           isRepeat: false
         };
@@ -279,10 +358,111 @@ export default async function handler(req, res) {
       }
     }
 
-    // 5. CHAMAR PRÓXIMA (CALL NEXT) — AVANÇA DA ÚLTIMA SENHA SEQUENCIAL
+    // 6. CHAMAR SENHA ESPECÍFICA DA FILA DE ESPERA (Por ID do ticket)
+    if (action === 'call-waiting-ticket' && ticketId) {
+      try {
+        // Busca o ticket aguardando
+        const { data: targetTicketData } = await supabase
+          .from('tickets')
+          .select('*')
+          .eq('id', ticketId)
+          .single();
+
+        if (targetTicketData) {
+          const { data: latestAnyRows } = await supabase
+            .from('tickets')
+            .select('*')
+            .order('id', { ascending: false })
+            .limit(1);
+
+          const maxCallId = latestAnyRows && latestAnyRows[0] ? (latestAnyRows[0].call_id || latestAnyRows[0].id) : 0;
+          const nextCallId = maxCallId + 1;
+
+          // Atualiza o ticket para o guichê e callId ativo
+          const { data: updated } = await supabaseAdmin
+            .from('tickets')
+            .update({
+              call_id: nextCallId,
+              desk: desk
+            })
+            .eq('id', ticketId)
+            .select();
+
+          const calledTicket = {
+            id: targetTicketData.id,
+            callId: nextCallId,
+            number: targetTicketData.number,
+            rawNumber: targetTicketData.raw_number,
+            desk: desk,
+            type: targetTicketData.type,
+            timestamp: formatBrasiliaTime(),
+            isRepeat: false
+          };
+
+          const state = await getSupabaseState();
+          return res.status(200).json({
+            success: true,
+            ticket: calledTicket,
+            state
+          });
+        }
+      } catch (err) {
+        console.error('[Call Waiting Ticket Error]', err);
+      }
+    }
+
+    // 7. CHAMAR PRÓXIMA SENHA (Se houver senhas aguardando no Totem, chama a prioritária/próxima; senão, avança a sequência tradicional)
     try {
-      // Busca a última senha sequencial (ignora chamadas Custom e marcadores de Sistema)
-      const { data: latestSeqRows } = await supabase
+      // 7.1 Verifica se há senhas aguardando atendimento do Totem
+      const { data: waitingTickets } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('desk', 'Aguardando')
+        .order('id', { ascending: true });
+
+      if (waitingTickets && waitingTickets.length > 0) {
+        // Dá prioridade para 'Preferencial', depois por ordem cronológica (menor ID)
+        const priorityTicket = waitingTickets.find(t => t.type === 'Preferencial') || waitingTickets[0];
+
+        const { data: latestAnyRows } = await supabase
+          .from('tickets')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        const maxCallId = latestAnyRows && latestAnyRows[0] ? (latestAnyRows[0].call_id || latestAnyRows[0].id) : 0;
+        const nextCallId = maxCallId + 1;
+
+        // Atualiza a senha aguardando para chamada no guichê selecionado
+        await supabaseAdmin
+          .from('tickets')
+          .update({
+            call_id: nextCallId,
+            desk: desk
+          })
+          .eq('id', priorityTicket.id);
+
+        const calledTicket = {
+          id: priorityTicket.id,
+          callId: nextCallId,
+          number: priorityTicket.number,
+          rawNumber: priorityTicket.raw_number,
+          desk: desk,
+          type: priorityTicket.type,
+          timestamp: formatBrasiliaTime(),
+          isRepeat: false
+        };
+
+        const state = await getSupabaseState();
+        return res.status(200).json({
+          success: true,
+          ticket: calledTicket,
+          state
+        });
+      }
+
+      // 7.2 Se não houver fila no Totem, segue a numeração sequencial tradicional
+      const { data: latestRows } = await supabase
         .from('tickets')
         .select('*')
         .neq('type', 'Custom')
@@ -290,12 +470,11 @@ export default async function handler(req, res) {
         .limit(1);
 
       let nextCounter = 1;
-      if (latestSeqRows && latestSeqRows.length > 0) {
-        const lastNum = latestSeqRows[0].raw_number;
+      if (latestRows && latestRows.length > 0) {
+        const lastNum = latestRows[0].raw_number;
         nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
       }
 
-      // Busca o call_id global mais alto para a TV
       const { data: latestAnyRows } = await supabase
         .from('tickets')
         .select('*')
