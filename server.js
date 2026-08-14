@@ -257,9 +257,9 @@ io.on('connection', (socket) => {
         .insert([{
           call_id: queueState.callSequence,
           number: formattedNumber,
-          raw_number: 0,
+          raw_number: queueState.counter,
           desk: desk,
-          type: 'Normal'
+          type: 'Custom'
         }])
         .select();
 
