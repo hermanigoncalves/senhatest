@@ -247,9 +247,9 @@ class BluetoothPrinterService {
     addCmd(ESC + 'a' + '\x01'); // Center
     addCmd(ESC + '!' + '\x08'); // Bold
     addCmd(GS + '!' + '\x11');  // Double size
-    add("CENTRO MEDICO CMIP\n");
-    addCmd(ESC + '!' + '\x00'); // Normal
-    add("Integrado Piratininga\n");
+    add("CMIP\n");
+    addCmd(GS + '!' + '\x00');  // Normal size
+    addCmd(ESC + '!' + '\x00'); // Bold off
     add(lineStr);
 
     // 3. Tipo de Atendimento
@@ -401,8 +401,7 @@ class BluetoothPrinterService {
           </style>
         </head>
         <body>
-          <div class="title">CENTRO MÉDICO CMIP</div>
-          <div class="sub">Integrado Piratininga</div>
+          <div class="title">CMIP</div>
           <div class="divider"></div>
           <div class="type">${isPref ? '★ ATENDIMENTO PREFERENCIAL ★' : 'ATENDIMENTO NORMAL'}</div>
           ${isPref ? '<div style="font-size: 8px;">(Idoso / PCD / Gestante / Colo)</div>' : ''}
