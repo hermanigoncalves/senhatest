@@ -126,6 +126,10 @@ export default function TvPanel() {
         if (state.history) setHistory(state.history);
         if (state.currentTicket) {
           handleNewTicketCall(state.currentTicket);
+        } else {
+          setCurrentTicket(null);
+          lastAnnouncedCallIdRef.current = 0;
+          lastTicketIdRef.current = null;
         }
       }
     }, 400);

@@ -83,7 +83,13 @@ export async function repeatCallVercel(currentTicket, desk) {
 
 export async function resetQueueVercel() {
   try {
-    await fetch('/api/reset', { method: 'POST' });
+    const res = await fetch('/api/ticket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'reset' })
+    });
+    fetch('/api/reset', { method: 'POST' }).catch(() => {});
+    return await res.json();
   } catch (err) {
     console.error('Erro ao zerar fila Vercel:', err);
   }

@@ -76,12 +76,15 @@ export default async function handler(req, res) {
             desks: memoryState.desks
           });
         } else {
-          // Se o banco estiver sem registros (ou registros deletados por reset/senha inicial), preserva a senha inicial definida em memória
+          // BANCO ZERADO / VAZIO:
+          // Se o banco está vazio, o currentTicket é SEMPRE null e o history é SEMPRE []
+          memoryState.currentTicket = null;
+          memoryState.history = [];
           return res.status(200).json({
             counter: memoryState.counter,
             callSequence: memoryState.callSequence,
-            currentTicket: memoryState.currentTicket,
-            history: memoryState.history,
+            currentTicket: null,
+            history: [],
             desks: memoryState.desks
           });
         }
@@ -96,6 +99,26 @@ export default async function handler(req, res) {
     const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber, number } = req.body || {};
     const targetInitial = initialNumber !== undefined ? initialNumber : number;
 
+    if (action === 'reset') {
+      memoryState = {
+        counter: 0,
+        callSequence: 0,
+        currentTicket: null,
+        history: [],
+        desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
+      };
+      try {
+        await supabaseAdmin.from('tickets').delete().neq('id', -1);
+      } catch (e) {
+        console.error('[Supabase Reset Error]', e);
+      }
+      return res.status(200).json({
+        success: true,
+        message: 'Fila zerada com sucesso.',
+        state: memoryState
+      });
+    }
+
     if (action === 'set-initial-ticket' && targetInitial !== undefined && targetInitial !== null) {
       const num = parseInt(targetInitial, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
@@ -104,7 +127,8 @@ export default async function handler(req, res) {
 
         try {
           if (num === 1) {
-            await supabaseAdmin.from('tickets').delete().neq('id', -1);
+            await supabaseAdmin.from('tickets').delete().gt('id', 0);
+            await supabaseAdmin.from('tickets').delete().gte('raw_number', 0);
             memoryState.currentTicket = null;
             memoryState.history = [];
           } else {
@@ -169,18 +193,7 @@ export default async function handler(req, res) {
       }
       nextCounter = memoryState.counter;
     } else {
-      try {
-        const { data: lastRows } = await supabase
-          .from('tickets')
-          .select('raw_number')
-          .order('id', { ascending: false })
-          .limit(1);
-
-        const lastNum = lastRows && lastRows[0] ? lastRows[0].raw_number : memoryState.counter;
-        nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
-      } catch (e) {
-        nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;
-      }
+      nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;
       formattedNumber = String(nextCounter).padStart(4, '0');
     }
 

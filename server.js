@@ -117,7 +117,8 @@ io.on('connection', (socket) => {
       queueState.callSequence += 1;
       try {
         if (num === 1) {
-          await supabaseAdmin.from('tickets').delete().neq('id', -1);
+          await supabaseAdmin.from('tickets').delete().gt('id', 0);
+          await supabaseAdmin.from('tickets').delete().gte('raw_number', 0);
           queueState.currentTicket = null;
           queueState.history = [];
         } else {

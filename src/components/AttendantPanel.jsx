@@ -108,13 +108,12 @@ export default function AttendantPanel() {
   };
 
   const handleResetQueue = async () => {
+    updateState({ counter: 0, currentTicket: null, history: [], desks: queueState.desks });
     if (isVercelHost || !socket.connected) {
-      await resetQueueVercel();
-      const state = await fetchVercelState();
-      updateState(state || { counter: 0, currentTicket: null, history: [], desks: queueState.desks });
+      const res = await resetQueueVercel();
+      if (res?.state) updateState(res.state);
     } else {
       socket.emit('reset-queue');
-      updateState({ counter: 0, currentTicket: null, history: [], desks: queueState.desks });
     }
     setShowResetModal(false);
   };
