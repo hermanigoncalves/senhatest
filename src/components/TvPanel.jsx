@@ -13,8 +13,8 @@ export default function TvPanel() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const lastAnnouncedCallIdRef = useRef(0);
-  const lastTicketIdRef = useRef(null);
-  const callingTimerRef = useRef(null);
+  const audioQueueRef = useRef([]);
+  const isProcessingQueueRef = useRef(false);
   const audioRef = useRef(null);
 
   const handleUnlockAudio = () => {
@@ -28,8 +28,76 @@ export default function TvPanel() {
     setAudioUnlocked(true);
   };
 
+  // Motor da Fila Sequencial Assíncrona de Áudio (FIFO)
+  const processAudioQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    if (audioQueueRef.current.length === 0) return;
+
+    isProcessingQueueRef.current = true;
+
+    while (audioQueueRef.current.length > 0) {
+      const nextTicket = audioQueueRef.current.shift();
+      if (!nextTicket) continue;
+
+      // 1. Atualiza visualmente o ticket atual na tela da TV
+      setCurrentTicket(nextTicket);
+      setHistory(prev => {
+        const filtered = prev.filter(t => t.id !== nextTicket.id && t.number !== nextTicket.number);
+        return [nextTicket, ...filtered].slice(0, 10);
+      });
+
+      // 2. Dispara o efeito visual de destaque
+      setIsCalling(true);
+
+      // 3. Toca o som (Bip + Voz) e AGUARDA COMPLETAR
+      try {
+        unlockAudio();
+        await announceTicket(nextTicket.number, nextTicket.desk);
+      } catch (err) {
+        console.error('Erro no anúncio sonoro de senha:', err);
+      }
+
+      // 4. Tempo de respiro visual na tela antes de passar para a próxima senha da fila (1.2s)
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      setIsCalling(false);
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+
+    isProcessingQueueRef.current = false;
+  };
+
+  const enqueueTicketCall = (ticket) => {
+    if (!ticket) return;
+    const callId = ticket.callId || (typeof ticket.id === 'number' && ticket.id < 1000000000000 ? ticket.id : 0);
+
+    // Se a contagem foi redefinida para um número menor ou zerada, limpa a fila e destrava
+    if (callId > 0 && lastAnnouncedCallIdRef.current > 0 && (callId < lastAnnouncedCallIdRef.current || ticket.rawNumber < lastAnnouncedCallIdRef.current - 20)) {
+      lastAnnouncedCallIdRef.current = 0;
+      audioQueueRef.current = [];
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    }
+
+    // Se for uma chamada antiga já anunciada, apenas atualiza a tela se não estiver tocando fila
+    if (callId > 0 && callId <= lastAnnouncedCallIdRef.current) {
+      if (!isProcessingQueueRef.current) {
+        setCurrentTicket(ticket);
+      }
+      return;
+    }
+
+    const alreadyInQueue = audioQueueRef.current.some(t => (t.callId || t.id) === (ticket.callId || ticket.id));
+    if (!alreadyInQueue) {
+      if (callId > 0) {
+        lastAnnouncedCallIdRef.current = Math.max(lastAnnouncedCallIdRef.current, callId);
+      }
+      audioQueueRef.current.push(ticket);
+      processAudioQueue();
+    }
+  };
+
   useEffect(() => {
-    // Aquecimento automático assim que a tela abre
     warmupAudio();
     if (isAudioContextRunning()) {
       setAudioUnlocked(true);
@@ -43,70 +111,39 @@ export default function TvPanel() {
     updateClock();
     const clockInterval = setInterval(updateClock, 1000);
 
-    const handleNewTicketCall = (ticket) => {
-      if (!ticket) return;
-
-      const callId = ticket.callId || (typeof ticket.id === 'number' && ticket.id < 1000000000000 ? ticket.id : 0);
-
-      // Se a contagem de senhas foi redefinida para um número menor ou zerada, libera a trava do anúncio automaticamente
-      if (callId > 0 && lastAnnouncedCallIdRef.current > 0 && (callId < lastAnnouncedCallIdRef.current || ticket.rawNumber < lastAnnouncedCallIdRef.current - 20)) {
-        lastAnnouncedCallIdRef.current = 0;
-      }
-
-      // Trava de Ouro: A TV só toca som se houver um callId estritamente MAIOR que o já anunciado
-      if (callId > 0 && callId <= lastAnnouncedCallIdRef.current) {
-        setCurrentTicket(ticket);
-        return;
-      }
-
-      if (callId > 0) {
-        lastAnnouncedCallIdRef.current = callId;
-      } else {
-        const fallbackKey = `${ticket.number}_${ticket.desk}_${ticket.timestamp}_${ticket.isRepeat ? Date.now() : ''}`;
-        if (fallbackKey === lastTicketIdRef.current) return;
-        lastTicketIdRef.current = fallbackKey;
-      }
-
-      setCurrentTicket(ticket);
-      setHistory(prev => {
-        const filtered = prev.filter(t => t.id !== ticket.id && t.number !== ticket.number);
-        return [ticket, ...filtered].slice(0, 10);
-      });
-      setIsCalling(true);
-      if (callingTimerRef.current) clearTimeout(callingTimerRef.current);
-      callingTimerRef.current = setTimeout(() => setIsCalling(false), 4000);
-
-      unlockAudio();
-      announceTicket(ticket.number, ticket.desk);
-    };
-
     function onConnect() { setIsConnected(true); }
     function onDisconnect() { setIsConnected(false); }
     function onStateUpdate(state) {
       if (!state) return;
 
-      // Se a fila foi zerada pelo painel do atendente, libera a trava de anúncio sonoro
       if (!state.currentTicket || state.counter === 0) {
+        audioQueueRef.current = [];
+        if (typeof window !== 'undefined' && window.speechSynthesis) {
+          window.speechSynthesis.cancel();
+        }
         lastAnnouncedCallIdRef.current = 0;
-        lastTicketIdRef.current = null;
+        setCurrentTicket(null);
+        setHistory([]);
+      } else if (state.currentTicket && lastAnnouncedCallIdRef.current === 0) {
+        lastAnnouncedCallIdRef.current = state.currentTicket.callId || state.currentTicket.id;
+        setCurrentTicket(state.currentTicket);
       }
 
-      if (state.currentTicket) {
-        setCurrentTicket(state.currentTicket);
-        if (lastAnnouncedCallIdRef.current === 0 && state.currentTicket.callId) {
-          lastAnnouncedCallIdRef.current = state.currentTicket.callId;
-        }
-      } else {
-        setCurrentTicket(null);
+      if (state.history && !isProcessingQueueRef.current) {
+        setHistory(state.history);
       }
-      if (state.history) setHistory(state.history);
     }
+
     function onTicketCalled(ticket) {
-      handleNewTicketCall(ticket);
+      enqueueTicketCall(ticket);
     }
+
     function onQueueReset() {
+      audioQueueRef.current = [];
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
       lastAnnouncedCallIdRef.current = 0;
-      lastTicketIdRef.current = null;
       setCurrentTicket(null);
       setHistory([]);
     }
@@ -119,17 +156,47 @@ export default function TvPanel() {
 
     if (socket.connected) socket.emit('get-state');
 
+    // Polling Vercel com detecção e enfileiramento de múltiplas chamadas simultâneas
     const pollInterval = setInterval(async () => {
       const state = await fetchVercelState();
       if (state) {
         setIsConnected(true);
-        if (state.history) setHistory(state.history);
+
         if (state.currentTicket) {
-          handleNewTicketCall(state.currentTicket);
+          const currentCallId = state.currentTicket.callId || state.currentTicket.id;
+
+          if (lastAnnouncedCallIdRef.current === 0) {
+            // Primeira carga: registra o estado atual sem tocar áudios velhos
+            lastAnnouncedCallIdRef.current = currentCallId;
+            setCurrentTicket(state.currentTicket);
+            if (state.history) setHistory(state.history);
+          } else if (state.history && state.history.length > 0) {
+            // Encontra todas as chamadas novas no histórico ainda não anunciadas
+            const unannounced = state.history
+              .filter(t => (t.callId || t.id) > lastAnnouncedCallIdRef.current)
+              .sort((a, b) => (a.callId || a.id) - (b.callId || b.id));
+
+            if (unannounced.length > 0) {
+              unannounced.forEach(t => enqueueTicketCall(t));
+            } else if (currentCallId > lastAnnouncedCallIdRef.current) {
+              enqueueTicketCall(state.currentTicket);
+            }
+          } else if (currentCallId > lastAnnouncedCallIdRef.current) {
+            enqueueTicketCall(state.currentTicket);
+          }
         } else {
+          // Banco zerado
+          audioQueueRef.current = [];
+          if (typeof window !== 'undefined' && window.speechSynthesis) {
+            window.speechSynthesis.cancel();
+          }
           setCurrentTicket(null);
+          setHistory([]);
           lastAnnouncedCallIdRef.current = 0;
-          lastTicketIdRef.current = null;
+        }
+
+        if (state.history && !isProcessingQueueRef.current) {
+          setHistory(state.history);
         }
       }
     }, 400);
@@ -145,6 +212,7 @@ export default function TvPanel() {
       socket.off('disconnect', onDisconnect);
       socket.off('state-update', onStateUpdate);
       socket.off('ticket-called', onTicketCalled);
+      socket.off('queue-reset', onQueueReset);
       events.forEach(evt => window.removeEventListener(evt, globalUnlock, { capture: true }));
       clearInterval(clockInterval);
       clearInterval(pollInterval);
