@@ -57,10 +57,10 @@ export default function TvPanel() {
         console.error('Erro no anúncio sonoro de senha:', err);
       }
 
-      // 4. Tempo de respiro visual na tela antes de passar para a próxima senha da fila (1.2s)
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      // 4. Tempo de respiro visual na tela após a voz terminar de falar (2.0s)
+      await new Promise(resolve => setTimeout(resolve, 2000));
       setIsCalling(false);
-      await new Promise(resolve => setTimeout(resolve, 300));
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
 
     isProcessingQueueRef.current = false;

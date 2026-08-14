@@ -305,10 +305,9 @@ export function speakTicket(number, desk) {
         const voices = window.speechSynthesis.getVoices();
         const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt')))) || (voices && voices[0]);
 
-        // Fix pro bug do Garbage Collector no Chrome que causava o congelamento da voz e o atraso de 8 segundos
         activeUtterance = new SpeechSynthesisUtterance(phrase);
         activeUtterance.lang = 'pt-BR';
-        activeUtterance.rate = 1.05;
+        activeUtterance.rate = 0.95; // Cadência clara e natural para ambiente de saúde
         activeUtterance.pitch = 1.0;
         activeUtterance.volume = 1.0;
         if (validPtVoice) {
@@ -316,31 +315,32 @@ export function speakTicket(number, desk) {
         }
 
         let hasEnded = false;
+        let safetyTimeout = null;
+
         const finish = () => {
           if (!hasEnded) {
             hasEnded = true;
+            if (safetyTimeout) clearTimeout(safetyTimeout);
             activeUtterance = null;
             resolve();
           }
         };
 
         activeUtterance.onend = finish;
-        activeUtterance.onerror = () => {
+        activeUtterance.onerror = (err) => {
+          console.warn('[SpeechSynthesis Error, usando fallback]', err);
           if (!hasEnded) {
             hasEnded = true;
+            if (safetyTimeout) clearTimeout(safetyTimeout);
             activeUtterance = null;
             speakTicketOnline(phrase).then(resolve);
           }
         };
 
-        // Reduzido o timeout de fallback de 3000ms para 600ms
-        setTimeout(() => {
-          if (!hasEnded) {
-            hasEnded = true;
-            activeUtterance = null;
-            speakTicketOnline(phrase).then(resolve);
-          }
-        }, 600);
+        // Timeout de segurança longo (6s) apenas para caso o motor do browser congele
+        safetyTimeout = setTimeout(() => {
+          finish();
+        }, 6000);
 
         window.speechSynthesis.speak(activeUtterance);
         return;
