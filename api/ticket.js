@@ -1,13 +1,5 @@
 import { supabase, supabaseAdmin } from './_supabase.js';
 
-let memoryState = {
-  counter: 0,
-  callSequence: 0,
-  currentTicket: null,
-  history: [],
-  desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
-};
-
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -30,218 +22,307 @@ export default async function handler(req, res) {
     });
   };
 
-  if (req.method === 'GET') {
+  const DESKS_LIST = ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP'];
+
+  // Helper para buscar o estado 100% atualizado do Supabase
+  const getSupabaseState = async () => {
     try {
-      const { data: rows, error } = await supabase
+      const { data: allRows, error } = await supabase
         .from('tickets')
         .select('*')
         .order('id', { ascending: false })
-        .limit(10);
+        .limit(20);
 
-      if (!error) {
-        if (rows && rows.length > 0) {
-          const current = {
-            id: rows[0].id,
-            callId: rows[0].call_id || rows[0].id,
-            number: rows[0].number,
-            rawNumber: rows[0].raw_number,
-            desk: rows[0].desk,
-            type: rows[0].type,
-            timestamp: formatBrasiliaTime(new Date(rows[0].created_at))
-          };
-
-          const history = rows.map(r => ({
-            id: r.id,
-            callId: r.call_id || r.id,
-            number: r.number,
-            rawNumber: r.raw_number,
-            desk: r.desk,
-            type: r.type,
-            timestamp: formatBrasiliaTime(new Date(r.created_at))
-          }));
-
-          const counter = rows[0].raw_number || 0;
-          const callSequence = rows[0].call_id || 0;
-
-          memoryState.counter = counter;
-          memoryState.callSequence = callSequence;
-          memoryState.currentTicket = current;
-          memoryState.history = history;
-
-          return res.status(200).json({
-            counter,
-            callSequence,
-            currentTicket: current,
-            history,
-            desks: memoryState.desks
-          });
-        } else {
-          // BANCO ZERADO / VAZIO:
-          // Se o banco está vazio, o currentTicket é SEMPRE null e o history é SEMPRE []
-          memoryState.currentTicket = null;
-          memoryState.history = [];
-          return res.status(200).json({
-            counter: memoryState.counter,
-            callSequence: memoryState.callSequence,
-            currentTicket: null,
-            history: [],
-            desks: memoryState.desks
-          });
-        }
+      if (error || !allRows || allRows.length === 0) {
+        return {
+          counter: 0,
+          callSequence: 0,
+          currentTicket: null,
+          history: [],
+          desks: DESKS_LIST
+        };
       }
+
+      // Separa tickets reais dos marcadores de sistema (seeds)
+      const realTickets = allRows.filter(r => r.type !== 'Sistema');
+      const latestOverall = allRows[0];
+
+      let currentTicket = null;
+      let history = [];
+
+      if (realTickets.length > 0) {
+        currentTicket = {
+          id: realTickets[0].id,
+          callId: realTickets[0].call_id || realTickets[0].id,
+          number: realTickets[0].number,
+          rawNumber: realTickets[0].raw_number,
+          desk: realTickets[0].desk,
+          type: realTickets[0].type,
+          timestamp: formatBrasiliaTime(new Date(realTickets[0].created_at))
+        };
+
+        history = realTickets.slice(0, 10).map(r => ({
+          id: r.id,
+          callId: r.call_id || r.id,
+          number: r.number,
+          rawNumber: r.raw_number,
+          desk: r.desk,
+          type: r.type,
+          timestamp: formatBrasiliaTime(new Date(r.created_at))
+        }));
+      }
+
+      return {
+        counter: latestOverall.raw_number || 0,
+        callSequence: latestOverall.call_id || latestOverall.id || 0,
+        currentTicket,
+        history,
+        desks: DESKS_LIST
+      };
     } catch (err) {
-      console.error('[Supabase GET Error]', err);
-    }
-    return res.status(200).json(memoryState);
-  }
-
-  if (req.method === 'POST') {
-    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber, number } = req.body || {};
-    const targetInitial = initialNumber !== undefined ? initialNumber : number;
-
-    if (action === 'reset') {
-      memoryState = {
+      console.error('[Supabase State Error]', err);
+      return {
         counter: 0,
         callSequence: 0,
         currentTicket: null,
         history: [],
-        desks: ['Guichê 01', 'Guichê 02', 'Guichê 03', 'Guichê 04', 'Recepção CMIP']
+        desks: DESKS_LIST
       };
+    }
+  };
+
+  // GET: Retorna o estado real derivado do Supabase
+  if (req.method === 'GET') {
+    const state = await getSupabaseState();
+    return res.status(200).json(state);
+  }
+
+  // POST: Executa as ações alterando o Supabase
+  if (req.method === 'POST') {
+    const { action, desk = 'Guichê 01', ticketType = 'Normal', customNumber, initialNumber, number } = req.body || {};
+    const targetInitial = initialNumber !== undefined ? initialNumber : number;
+
+    // 1. ZERAR FILA
+    if (action === 'reset') {
       try {
-        await supabaseAdmin.from('tickets').delete().neq('id', -1);
+        await supabaseAdmin.from('tickets').delete().gt('id', 0);
+        await supabaseAdmin.from('tickets').delete().gte('raw_number', 0);
       } catch (e) {
         console.error('[Supabase Reset Error]', e);
       }
       return res.status(200).json({
         success: true,
         message: 'Fila zerada com sucesso.',
-        state: memoryState
+        state: {
+          counter: 0,
+          callSequence: 0,
+          currentTicket: null,
+          history: [],
+          desks: DESKS_LIST
+        }
       });
     }
 
+    // 2. DEFINIR SENHA INICIAL (1 a 1000)
     if (action === 'set-initial-ticket' && targetInitial !== undefined && targetInitial !== null) {
       const num = parseInt(targetInitial, 10);
       if (!isNaN(num) && num >= 1 && num <= 1000) {
-        memoryState.counter = num - 1;
-        memoryState.callSequence += 1;
-
         try {
           if (num === 1) {
+            // Se for 1, limpa completamente a tabela para começar no 0001
             await supabaseAdmin.from('tickets').delete().gt('id', 0);
             await supabaseAdmin.from('tickets').delete().gte('raw_number', 0);
-            memoryState.currentTicket = null;
-            memoryState.history = [];
           } else {
+            // Se for maior que 1 (ex: 50 ou 10 vindo de 154), apaga registros >= num
             await supabaseAdmin.from('tickets').delete().gte('raw_number', num);
 
-            const { data: remaining } = await supabase
+            // Verifica o último registro remanescente no banco
+            const { data: latestRemaining } = await supabase
               .from('tickets')
               .select('*')
               .order('id', { ascending: false })
-              .limit(10);
+              .limit(1);
 
-            if (remaining && remaining.length > 0) {
-              memoryState.currentTicket = {
-                id: remaining[0].id,
-                callId: remaining[0].call_id || remaining[0].id,
-                number: remaining[0].number,
-                rawNumber: remaining[0].raw_number,
-                desk: remaining[0].desk,
-                type: remaining[0].type,
-                timestamp: formatBrasiliaTime(new Date(remaining[0].created_at))
-              };
-              memoryState.history = remaining.map(r => ({
-                id: r.id,
-                callId: r.call_id || r.id,
-                number: r.number,
-                rawNumber: r.raw_number,
-                desk: r.desk,
-                type: r.type,
-                timestamp: formatBrasiliaTime(new Date(r.created_at))
-              }));
-            } else {
-              memoryState.currentTicket = null;
-              memoryState.history = [];
+            const lastCallId = latestRemaining && latestRemaining[0] ? (latestRemaining[0].call_id || latestRemaining[0].id) : 0;
+            const lastRaw = latestRemaining && latestRemaining[0] ? latestRemaining[0].raw_number : -1;
+
+            // Se o último registro não for exatamente num - 1, insere um marcador para garantir que a próxima chamada seja num
+            if (lastRaw !== num - 1) {
+              await supabaseAdmin.from('tickets').insert([{
+                call_id: lastCallId + 1,
+                number: String(num - 1).padStart(4, '0'),
+                raw_number: num - 1,
+                desk: 'CMIP',
+                type: 'Sistema'
+              }]);
             }
           }
         } catch (e) {
-          console.error('[Supabase Delete Higher Tickets Error]', e);
+          console.error('[Supabase Set Initial Error]', e);
         }
 
+        const updatedState = await getSupabaseState();
         return res.status(200).json({
           success: true,
           message: `Próxima senha iniciará em ${String(num).padStart(4, '0')}`,
-          state: memoryState
+          state: updatedState
         });
       }
     }
 
-    let formattedNumber = '';
-    let nextCounter = memoryState.counter;
-
+    // 3. RECHAMAR SENHA
     if (action === 'repeat') {
-      if (memoryState.currentTicket) {
-        formattedNumber = memoryState.currentTicket.number;
-        nextCounter = memoryState.currentTicket.rawNumber || memoryState.counter;
-      } else {
-        formattedNumber = customNumber || '0001';
+      try {
+        const { data: latestRows } = await supabase
+          .from('tickets')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(10);
+
+        const realRows = (latestRows || []).filter(r => r.type !== 'Sistema');
+        if (realRows.length > 0) {
+          const targetTicket = realRows[0];
+          const maxCallId = latestRows[0].call_id || latestRows[0].id || 0;
+          const targetDesk = desk || targetTicket.desk || 'Guichê 01';
+
+          const { data: inserted } = await supabaseAdmin
+            .from('tickets')
+            .insert([{
+              call_id: maxCallId + 1,
+              number: targetTicket.number,
+              raw_number: targetTicket.raw_number,
+              desk: targetDesk,
+              type: targetTicket.type || 'Normal'
+            }])
+            .select();
+
+          const nowStr = formatBrasiliaTime();
+          const repeatedTicket = {
+            id: inserted && inserted[0] ? inserted[0].id : Date.now(),
+            callId: maxCallId + 1,
+            number: targetTicket.number,
+            rawNumber: targetTicket.raw_number,
+            desk: targetDesk,
+            type: targetTicket.type || 'Normal',
+            timestamp: nowStr,
+            isRepeat: true
+          };
+
+          const state = await getSupabaseState();
+          return res.status(200).json({
+            success: true,
+            ticket: repeatedTicket,
+            state
+          });
+        }
+      } catch (err) {
+        console.error('[Supabase Repeat Error]', err);
       }
-    } else if (action === 'call-custom' && customNumber) {
-      formattedNumber = String(customNumber).trim();
+    }
+
+    // 4. CHAMAR NÚMERO ESPECÍFICO (CUSTOM)
+    if (action === 'call-custom' && customNumber) {
+      let formattedNumber = String(customNumber).trim();
+      let customRaw = 0;
       if (!isNaN(formattedNumber)) {
-        formattedNumber = String(parseInt(formattedNumber, 10)).padStart(4, '0');
+        customRaw = parseInt(formattedNumber, 10);
+        formattedNumber = String(customRaw).padStart(4, '0');
       }
-      nextCounter = memoryState.counter;
-    } else {
-      nextCounter = memoryState.counter >= 1000 ? 1 : memoryState.counter + 1;
-      formattedNumber = String(nextCounter).padStart(4, '0');
+
+      try {
+        const { data: latestRows } = await supabase
+          .from('tickets')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(1);
+
+        const maxCallId = latestRows && latestRows[0] ? (latestRows[0].call_id || latestRows[0].id) : 0;
+        const nextCallId = maxCallId + 1;
+
+        const { data: inserted } = await supabaseAdmin
+          .from('tickets')
+          .insert([{
+            call_id: nextCallId,
+            number: formattedNumber,
+            raw_number: customRaw,
+            desk: desk,
+            type: ticketType || 'Normal'
+          }])
+          .select();
+
+        const customTicket = {
+          id: inserted && inserted[0] ? inserted[0].id : Date.now(),
+          callId: nextCallId,
+          number: formattedNumber,
+          rawNumber: customRaw,
+          desk: desk,
+          type: ticketType || 'Normal',
+          timestamp: formatBrasiliaTime(),
+          isRepeat: false
+        };
+
+        const state = await getSupabaseState();
+        return res.status(200).json({
+          success: true,
+          ticket: customTicket,
+          state
+        });
+      } catch (err) {
+        console.error('[Supabase Custom Error]', err);
+      }
     }
 
-    memoryState.callSequence += 1;
-    const nowStr = formatBrasiliaTime();
-    const newTicket = {
-      id: Date.now(),
-      callId: memoryState.callSequence,
-      number: formattedNumber,
-      rawNumber: nextCounter,
-      desk,
-      type: ticketType,
-      timestamp: nowStr,
-      isRepeat: action === 'repeat'
-    };
-
-    memoryState.counter = nextCounter;
-    memoryState.currentTicket = newTicket;
-    
-    if (action !== 'repeat') {
-      memoryState.history = [newTicket, ...memoryState.history.slice(0, 9)];
-    }
-
+    // 5. CHAMAR PRÓXIMA (CALL NEXT)
     try {
-      const { data: inserted, error: insertError } = await supabaseAdmin
+      const { data: latestRows } = await supabase
+        .from('tickets')
+        .select('*')
+        .order('id', { ascending: false })
+        .limit(1);
+
+      let nextCounter = 1;
+      let nextCallId = 1;
+
+      if (latestRows && latestRows.length > 0) {
+        const lastNum = latestRows[0].raw_number;
+        nextCounter = lastNum >= 1000 ? 1 : lastNum + 1;
+        nextCallId = (latestRows[0].call_id || latestRows[0].id) + 1;
+      }
+
+      const formattedNumber = String(nextCounter).padStart(4, '0');
+
+      const { data: inserted } = await supabaseAdmin
         .from('tickets')
         .insert([{
-          call_id: memoryState.callSequence,
+          call_id: nextCallId,
           number: formattedNumber,
           raw_number: nextCounter,
           desk: desk,
-          type: ticketType
+          type: ticketType || 'Normal'
         }])
         .select();
 
-      if (!insertError && inserted && inserted[0]) {
-        newTicket.id = inserted[0].id;
-        newTicket.callId = inserted[0].call_id || memoryState.callSequence;
-      }
-    } catch (err) {
-      console.error('[Supabase Insert Error]', err);
-    }
+      const newTicket = {
+        id: inserted && inserted[0] ? inserted[0].id : Date.now(),
+        callId: nextCallId,
+        number: formattedNumber,
+        rawNumber: nextCounter,
+        desk: desk,
+        type: ticketType || 'Normal',
+        timestamp: formatBrasiliaTime(),
+        isRepeat: false
+      };
 
-    return res.status(200).json({
-      success: true,
-      ticket: newTicket,
-      state: memoryState
-    });
+      const state = await getSupabaseState();
+      return res.status(200).json({
+        success: true,
+        ticket: newTicket,
+        state
+      });
+    } catch (err) {
+      console.error('[Supabase Call Next Error]', err);
+      return res.status(500).json({ error: err.message });
+    }
   }
 
   return res.status(405).json({ error: 'Method not allowed' });

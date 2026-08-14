@@ -130,17 +130,31 @@ io.on('connection', (socket) => {
             .order('id', { ascending: false })
             .limit(10);
 
-          if (remaining && remaining.length > 0) {
+          const realRemaining = (remaining || []).filter(r => r.type !== 'Sistema');
+          const lastCallId = remaining && remaining[0] ? (remaining[0].call_id || remaining[0].id) : 0;
+          const lastRaw = remaining && remaining[0] ? remaining[0].raw_number : -1;
+
+          if (lastRaw !== num - 1) {
+            await supabaseAdmin.from('tickets').insert([{
+              call_id: lastCallId + 1,
+              number: String(num - 1).padStart(4, '0'),
+              raw_number: num - 1,
+              desk: 'CMIP',
+              type: 'Sistema'
+            }]);
+          }
+
+          if (realRemaining.length > 0) {
             queueState.currentTicket = {
-              id: remaining[0].id,
-              callId: remaining[0].call_id || remaining[0].id,
-              number: remaining[0].number,
-              rawNumber: remaining[0].raw_number,
-              desk: remaining[0].desk,
-              type: remaining[0].type,
-              timestamp: formatBrasiliaTime(new Date(remaining[0].created_at))
+              id: realRemaining[0].id,
+              callId: realRemaining[0].call_id || realRemaining[0].id,
+              number: realRemaining[0].number,
+              rawNumber: realRemaining[0].raw_number,
+              desk: realRemaining[0].desk,
+              type: realRemaining[0].type,
+              timestamp: formatBrasiliaTime(new Date(realRemaining[0].created_at))
             };
-            queueState.history = remaining.map(r => ({
+            queueState.history = realRemaining.map(r => ({
               id: r.id,
               callId: r.call_id || r.id,
               number: r.number,
