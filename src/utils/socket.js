@@ -37,8 +37,21 @@ export async function fetchTvState(channel = 'all') {
   }
 }
 
-export async function fetchVercelState(channel = 'all') {
-  return await fetchTvState(channel);
+/**
+ * Busca o estado dos Tickets de Guichê e Fila de Espera do Totem
+ */
+export async function fetchTicketState() {
+  try {
+    const res = await fetch('/api/ticket');
+    if (res.ok) return await res.json();
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+export async function fetchVercelState() {
+  return await fetchTicketState();
 }
 
 /**
