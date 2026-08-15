@@ -1,9 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket, fetchTvState } from '../utils/socket';
 import { announceTicket, unlockAudio, warmupAudio, chimeDataUri, isAudioContextRunning } from '../utils/audio';
-import { Volume2, Wifi, Maximize2, Clock, Plus, VolumeX, Stethoscope, Star, User } from 'lucide-react';
+import { Volume2, Wifi, Maximize2, Clock, Plus, VolumeX, Stethoscope, Star, Monitor, DoorOpen, Users } from 'lucide-react';
 
-export default function TvPanel() {
+export default function TvPanel({ initialTvId }) {
+  // Determina o canal da TV ('recepcao', '1', '2' ou 'all')
+  const getUrlTvId = () => {
+    if (initialTvId) return String(initialTvId);
+    if (typeof window !== 'undefined') {
+      const path = window.location.pathname.toLowerCase();
+      const urlParams = new URLSearchParams(window.location.search);
+      const paramTv = urlParams.get('channel') || urlParams.get('tvId') || urlParams.get('tv');
+
+      if (paramTv === 'recepcao' || paramTv === 'guiche' || path.includes('/tv-recepcao')) return 'recepcao';
+      if (paramTv === '1' || path.includes('/tv1') || path.includes('/tv-medica-1')) return '1';
+      if (paramTv === '2' || path.includes('/tv2') || path.includes('/tv-medica-2')) return '2';
+    }
+    return 'all';
+  };
+
+  const [channel, setChannel] = useState(getUrlTvId());
   const [currentTicket, setCurrentTicket] = useState(null);
   const [history, setHistory] = useState([]);
   const [isConnected, setIsConnected] = useState(true);
@@ -17,6 +33,11 @@ export default function TvPanel() {
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
   const audioRef = useRef(null);
+  const channelRef = useRef(channel);
+
+  useEffect(() => {
+    channelRef.current = channel;
+  }, [channel]);
 
   const handleUnlockAudio = () => {
     warmupAudio();
@@ -29,7 +50,33 @@ export default function TvPanel() {
     setAudioUnlocked(true);
   };
 
-  // Processador sequencial de áudio protegido contra travamentos
+  // Regra de Isolamento Estrito: Determina se uma chamada pertence a esta TV
+  const belongsToThisTv = (callItem) => {
+    if (!callItem || callItem.type === 'Sistema') return false;
+    const currentChannel = channelRef.current;
+    if (currentChannel === 'all') return true;
+
+    // Se a TV for a da Recepção (apenas senhas numéricas dos guichês)
+    if (currentChannel === 'recepcao') {
+      const isDeskTicket = Boolean(callItem.number && !callItem.doctorName && !callItem.doctor_name);
+      const isTargetRecepcao = callItem.targetTv === 'recepcao' || callItem.target_tv === 'recepcao';
+      return isDeskTicket || isTargetRecepcao;
+    }
+
+    // Se for TV Médica 01 ou TV Médica 02
+    if (currentChannel === '1' || currentChannel === '2') {
+      // Ignora senhas puras de guichê da recepção na TV médica
+      if (callItem.number && !callItem.patientName && !callItem.patient_name) {
+        return false;
+      }
+      const itemTarget = String(callItem.targetTv || callItem.target_tv || '1');
+      return itemTarget === currentChannel || itemTarget === 'all';
+    }
+
+    return true;
+  };
+
+  // Processador sequencial de áudio protegido contra sobreposição
   const processAudioQueue = async () => {
     if (isProcessingQueueRef.current) return;
     if (audioQueueRef.current.length === 0) return;
@@ -39,19 +86,19 @@ export default function TvPanel() {
     try {
       while (audioQueueRef.current.length > 0) {
         const nextCall = audioQueueRef.current.shift();
-        if (!nextCall || nextCall.type === 'Sistema') continue;
+        if (!nextCall || !belongsToThisTv(nextCall)) continue;
 
-        // 1. Atualiza visualmente o card principal da TV
+        // 1. Atualiza o card principal da TV
         setCurrentTicket(nextCall);
         setHistory(prev => {
           const filtered = prev.filter(t => (t.id || t.callId) !== (nextCall.id || nextCall.callId));
           return [nextCall, ...filtered].slice(0, 8);
         });
 
-        // 2. Dispara destaque visual piscante
+        // 2. Dispara destaque visual pulsante
         setIsCalling(true);
 
-        // 3. Toca o Chime sonoro e fala a senha ou paciente
+        // 3. Toca Chime harmônico e fala a chamada em PT-BR
         try {
           unlockAudio();
           await Promise.race([
@@ -62,7 +109,7 @@ export default function TvPanel() {
           console.error('[Audio Error]', err);
         }
 
-        // 4. Intervalo de leitura visual antes da próxima chamada
+        // 4. Intervalo de leitura visual
         await new Promise(resolve => setTimeout(resolve, 3000));
         setIsCalling(false);
         await new Promise(resolve => setTimeout(resolve, 400));
@@ -79,9 +126,8 @@ export default function TvPanel() {
   };
 
   const enqueueCall = (callItem) => {
-    if (!callItem || callItem.type === 'Sistema') return;
+    if (!callItem || !belongsToThisTv(callItem)) return;
 
-    // Gera chave única robusta para evitar repetição acidental sem bloquear chamadas legítimas
     const uniqueKey = callItem.id 
       ? `id_${callItem.id}_${callItem.timestamp || ''}` 
       : `num_${callItem.number || callItem.patientName}_${callItem.timestamp || Date.now()}`;
@@ -95,7 +141,6 @@ export default function TvPanel() {
 
     announcedKeysRef.current.add(uniqueKey);
 
-    // Mantém o tamanho do Set controlado
     if (announcedKeysRef.current.size > 200) {
       const arr = Array.from(announcedKeysRef.current);
       announcedKeysRef.current = new Set(arr.slice(arr.length - 100));
@@ -123,11 +168,11 @@ export default function TvPanel() {
     function onDisconnect() { setIsConnected(false); }
     
     function onPatientCalled(ticket) {
-      if (ticket && ticket.type !== 'Sistema') enqueueCall(ticket);
+      if (ticket && belongsToThisTv(ticket)) enqueueCall(ticket);
     }
 
     function onTicketCalled(ticket) {
-      if (ticket && ticket.type !== 'Sistema') enqueueCall(ticket);
+      if (ticket && belongsToThisTv(ticket)) enqueueCall(ticket);
     }
 
     function onQueueReset() {
@@ -146,26 +191,26 @@ export default function TvPanel() {
     socket.on('ticket-called', onTicketCalled);
     socket.on('queue-reset', onQueueReset);
 
-    // Polling inteligente e seguro para a Vercel
+    // Polling resiliente filtrado para a TV ativa
     const pollInterval = setInterval(async () => {
-      const state = await fetchTvState();
+      const state = await fetchTvState(channelRef.current);
       if (state) {
         setIsConnected(true);
 
         if (isFirstMountRef.current) {
           isFirstMountRef.current = false;
-          if (state.currentTicket && state.currentTicket.type !== 'Sistema') {
+          if (state.currentTicket && belongsToThisTv(state.currentTicket)) {
             const firstKey = `id_${state.currentTicket.id}_${state.currentTicket.timestamp || ''}`;
             announcedKeysRef.current.add(firstKey);
             setCurrentTicket(state.currentTicket);
           }
           if (state.history) {
-            setHistory(state.history.filter(h => h.type !== 'Sistema'));
+            setHistory(state.history.filter(h => belongsToThisTv(h)));
           }
           return;
         }
 
-        if (state.currentTicket && state.currentTicket.type !== 'Sistema') {
+        if (state.currentTicket && belongsToThisTv(state.currentTicket)) {
           const key = `id_${state.currentTicket.id}_${state.currentTicket.timestamp || ''}`;
           if (!announcedKeysRef.current.has(key)) {
             enqueueCall(state.currentTicket);
@@ -173,7 +218,7 @@ export default function TvPanel() {
         }
 
         if (state.history && !isProcessingQueueRef.current) {
-          setHistory(state.history.filter(h => h.type !== 'Sistema'));
+          setHistory(state.history.filter(h => belongsToThisTv(h)));
         }
       }
     }, 2000);
@@ -192,7 +237,7 @@ export default function TvPanel() {
       clearInterval(clockInterval);
       clearInterval(pollInterval);
     };
-  }, []);
+  }, [channel]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -207,6 +252,15 @@ export default function TvPanel() {
   const displayDoctor = currentTicket?.doctorName || currentTicket?.doctor_name || '';
   const isPriority = currentTicket?.type === 'Preferencial';
 
+  const channelBadgeInfo = {
+    recepcao: { title: 'TV Recepção & Guichês', color: 'bg-emerald-500 text-slate-950', icon: Users },
+    '1': { title: 'TV 01 — Consultórios (Térreo / Ala A)', color: 'bg-cyan-500 text-slate-950', icon: DoorOpen },
+    '2': { title: 'TV 02 — Consultórios (1º Andar / Ala B)', color: 'bg-purple-500 text-white', icon: DoorOpen },
+    all: { title: 'Painel Geral CMIP', color: 'bg-cmip-500 text-cmip-950', icon: Monitor }
+  }[channel] || { title: 'Painel Geral CMIP', color: 'bg-cmip-500 text-cmip-950', icon: Monitor };
+
+  const ChannelIcon = channelBadgeInfo.icon;
+
   return (
     <div 
       onClick={handleUnlockAudio}
@@ -215,7 +269,7 @@ export default function TvPanel() {
     >
       <audio ref={audioRef} src={chimeDataUri} preload="auto" />
 
-      {/* CRUZES DECORATIVAS CMIP */}
+      {/* ELEMENTOS DECORATIVOS CMIP */}
       <div className="absolute top-6 left-6 grid grid-cols-4 gap-2 opacity-20 pointer-events-none">
         {[...Array(16)].map((_, i) => (
           <Plus key={i} className="w-5 h-5 text-cmip-400" />
@@ -239,43 +293,89 @@ export default function TvPanel() {
       )}
 
       {/* CABEÇALHO DA TV */}
-      <header className="px-6 py-4 bg-cmip-900/90 border-b border-cmip-600/30 flex items-center justify-between shadow-2xl backdrop-blur-md relative z-10 shrink-0">
+      <header className="px-6 py-3.5 bg-cmip-900/90 border-b border-cmip-600/30 flex flex-wrap items-center justify-between gap-4 shadow-2xl backdrop-blur-md relative z-10 shrink-0">
         <div className="flex items-center gap-4">
-          <div className="bg-white p-2.5 rounded-2xl shadow-xl border border-cmip-100 max-w-[200px]">
-            <img src="/logo.png" alt="Centro Médico Integrado Piratininga" className="h-10 object-contain" />
+          <div className="bg-white p-2 rounded-2xl shadow-xl border border-cmip-100 max-w-[180px]">
+            <img src="/logo.png" alt="Centro Médico Integrado Piratininga" className="h-9 object-contain" />
           </div>
           <div>
-            <h1 className="text-lg md:text-xl font-black tracking-tight text-white uppercase flex items-center gap-2">
-              <span className="text-cmip-400">CMIP</span> PAINEL DE ATENDIMENTO
-            </h1>
-            <p className="text-[11px] text-cmip-100 font-bold tracking-wider uppercase">CENTRO MÉDICO INTEGRADO PIRATININGA</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base md:text-lg font-black tracking-tight text-white uppercase flex items-center gap-2">
+                <span className="text-cmip-400">CMIP</span> PAINEL DE ATENDIMENTO
+              </h1>
+              
+              {/* BADGE DA TV DEDICADA */}
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow ${channelBadgeInfo.color}`}>
+                <ChannelIcon className="w-3 h-3" />
+                {channelBadgeInfo.title}
+              </span>
+            </div>
+            <p className="text-[10px] text-cmip-100 font-bold tracking-wider uppercase">CENTRO MÉDICO INTEGRADO PIRATININGA</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end">
-            <div className="flex items-center gap-2 text-2xl md:text-3xl font-extrabold text-white tracking-widest">
-              <Clock className="w-5 h-5 text-cmip-400" />
-              <span>{timeStr}</span>
-            </div>
-            <span className="text-[11px] text-cmip-100/70 capitalize">{dateStr}</span>
+        {/* CONTROLES E SELETOR DE CANAIS */}
+        <div className="flex items-center gap-5">
+          
+          {/* SELETOR DE TV (DISCRETO) */}
+          <div className="flex items-center gap-1 bg-cmip-950/80 p-1 rounded-xl border border-cmip-600/40" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => { setChannel('recepcao'); announcedKeysRef.current.clear(); }}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                channel === 'recepcao' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-cmip-100/60 hover:text-white'
+              }`}
+            >
+              Recepção
+            </button>
+            <button
+              onClick={() => { setChannel('1'); announcedKeysRef.current.clear(); }}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                channel === '1' ? 'bg-cyan-500 text-slate-950 shadow' : 'text-cmip-100/60 hover:text-white'
+              }`}
+            >
+              TV 01
+            </button>
+            <button
+              onClick={() => { setChannel('2'); announcedKeysRef.current.clear(); }}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                channel === '2' ? 'bg-purple-500 text-white shadow' : 'text-cmip-100/60 hover:text-white'
+              }`}
+            >
+              TV 02
+            </button>
+            <button
+              onClick={() => { setChannel('all'); announcedKeysRef.current.clear(); }}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-black transition-all ${
+                channel === 'all' ? 'bg-cmip-500 text-cmip-950 shadow' : 'text-cmip-100/60 hover:text-white'
+              }`}
+            >
+              Geral
+            </button>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col items-end">
+            <div className="flex items-center gap-2 text-xl md:text-2xl font-extrabold text-white tracking-widest">
+              <Clock className="w-4 h-4 text-cmip-400" />
+              <span>{timeStr}</span>
+            </div>
+            <span className="text-[10px] text-cmip-100/70 capitalize">{dateStr}</span>
+          </div>
+
+          <div className="flex items-center gap-2">
             <button 
-              onClick={toggleFullscreen}
-              className="p-2.5 bg-cmip-950/80 hover:bg-cmip-800 rounded-xl text-cmip-100 transition-colors border border-cmip-600/40"
+              onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }}
+              className="p-2 bg-cmip-950/80 hover:bg-cmip-800 rounded-xl text-cmip-100 transition-colors border border-cmip-600/40"
               title="Tela Cheia"
             >
               <Maximize2 className="w-4 h-4" />
             </button>
 
-            <div className={`px-3.5 py-1.5 rounded-xl border flex items-center gap-2 text-xs font-semibold ${
+            <div className={`px-2.5 py-1 rounded-xl border flex items-center gap-1.5 text-[10px] font-black ${
               isConnected 
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/40' 
                 : 'bg-rose-950/80 text-rose-300 border-rose-500/40'
             }`}>
-              <Wifi className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
+              <Wifi className="w-3 h-3 text-emerald-400 animate-pulse" />
               <span>ONLINE</span>
             </div>
           </div>
@@ -301,7 +401,7 @@ export default function TvPanel() {
                     ? 'bg-amber-400 text-slate-950 animate-pulse flex items-center gap-1.5' 
                     : 'bg-cmip-500 text-cmip-950'
                 }`}>
-                  {isPriority ? <><Star className="w-4 h-4 fill-current" /> ATENDIMENTO PREFERENCIAL</> : 'SENHA CMIP'}
+                  {isPriority ? <><Star className="w-4 h-4 fill-current" /> ATENDIMENTO PREFERENCIAL</> : channel === 'recepcao' ? 'SENHA DA RECEPÇÃO' : 'CHAMADA MÉDICA'}
                 </span>
               </div>
 
@@ -311,9 +411,11 @@ export default function TvPanel() {
               </div>
             </div>
 
-            {/* CENTRO: NOME OU NÚMERO */}
+            {/* CENTRO: NOME OU NÚMERO DA SENHA */}
             <div className="my-auto py-4 flex flex-col items-center justify-center max-w-4xl">
-              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">SENHA ATUAL</p>
+              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.3em] mb-2">
+                {channel === 'recepcao' ? 'SENHA ATUAL' : 'PACIENTE CHAMADO'}
+              </p>
               
               <div className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-black tracking-tight text-white drop-shadow-[0_10px_40px_rgba(74,222,128,0.5)] line-clamp-2 leading-tight uppercase">
                 {displayName}
@@ -344,7 +446,9 @@ export default function TvPanel() {
             <div className="flex-1 flex flex-col min-h-0">
               <div className="flex items-center justify-between mb-4 pb-3 border-b border-cmip-600/30 shrink-0">
                 <h2 className="text-base font-bold uppercase tracking-wider text-slate-200">Últimas Chamadas</h2>
-                <span className="text-[10px] bg-cmip-500 text-cmip-950 px-2.5 py-0.5 rounded-full font-black shadow-md">CMIP</span>
+                <span className="text-[10px] bg-cmip-500 text-cmip-950 px-2.5 py-0.5 rounded-full font-black shadow-md">
+                  {channelBadgeInfo.title.split('—')[0].trim()}
+                </span>
               </div>
 
               <div className="space-y-2.5 flex-1 flex flex-col justify-around min-h-0">
@@ -374,7 +478,7 @@ export default function TvPanel() {
 
                 {history.length <= 1 && (
                   <div className="py-12 text-center text-cmip-100/50 font-medium text-xs">
-                    Nenhuma chamada anterior
+                    Nenhuma chamada anterior neste canal
                   </div>
                 )}
               </div>
@@ -382,10 +486,12 @@ export default function TvPanel() {
 
             <div className="pt-4 border-t border-cmip-600/30 text-center shrink-0 mt-2">
               <span className="inline-block px-3 py-1 bg-cmip-red text-white font-extrabold text-[10px] uppercase tracking-wider rounded-full shadow-md mb-1">
-                Agendamento CMIP
+                Atendimento CMIP
               </span>
               <p className="text-[10px] text-cmip-100/70 font-medium">
-                Atendimento por ordem de chamada. Mantenha seu documento em mãos.
+                {channel === 'recepcao' 
+                  ? 'Aguarde a chamada da sua senha e dirija-se ao guichê.' 
+                  : 'Por favor, dirija-se ao consultório indicado no painel.'}
               </p>
             </div>
           </div>

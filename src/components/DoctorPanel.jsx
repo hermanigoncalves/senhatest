@@ -1,22 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  fetchDoctorQueue, callPatient, repeatPatientCall, updatePatientStatus, socket 
+  fetchDoctorQueue, callPatient, repeatPatientCall, updatePatientStatus, socket, fetchDoctorsList 
 } from '../utils/socket';
 import { 
   Stethoscope, Bell, RotateCcw, CheckCircle2, UserX, Clock, Star, Users, 
-  Tv, LogOut, Activity, AlertCircle, Sparkles 
+  Tv, LogOut, Activity, Sparkles, RefreshCw, CheckCheck, Monitor
 } from 'lucide-react';
 
 export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
-  const doctorId = user?.doctorId || user?.id || 1;
+  const doctorId = user?.doctorId || user?.doctor_id || user?.id || 1;
   const doctorName = user?.name || 'Dr. Médico';
-  const officeName = user?.doctor?.office_name || 'Consultório 01';
+  const initialOffice = user?.doctor?.office_name || 'Consultório CMIP';
 
+  const [officeName, setOfficeName] = useState(initialOffice);
+  const [targetTv, setTargetTv] = useState('1');
   const [queue, setQueue] = useState([]);
   const [callingId, setCallingId] = useState(null);
   const [activePatient, setActivePatient] = useState(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
+
+  // Busca dados do médico logado para obter a TV e consultório exatos
+  const loadDoctorInfo = async () => {
+    try {
+      const res = await fetchDoctorsList();
+      if (res?.doctors) {
+        const currentDoc = res.doctors.find(d => d.id === doctorId || d.name === doctorName);
+        if (currentDoc) {
+          if (currentDoc.office_name) setOfficeName(currentDoc.office_name);
+          if (currentDoc.office?.target_tv) setTargetTv(currentDoc.office.target_tv);
+        }
+      }
+    } catch (e) {}
+  };
 
   const loadQueue = async () => {
     const res = await fetchDoctorQueue(doctorId);
@@ -28,6 +44,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
   };
 
   useEffect(() => {
+    loadDoctorInfo();
     loadQueue();
 
     // Sincronização em tempo real via Socket
@@ -37,8 +54,8 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
     socket.on('patient-registered', handlePatientRegistered);
     socket.on('status-updated', handleStatusUpdated);
 
-    // Polling de atualização da fila a cada 3s
-    const interval = setInterval(loadQueue, 3000);
+    // Polling resiliente a cada 2.5s
+    const interval = setInterval(loadQueue, 2500);
 
     return () => {
       socket.off('patient-registered', handlePatientRegistered);
@@ -50,7 +67,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
   const handleCall = async (item) => {
     setCallingId(item.id);
     setLoading(true);
-    setMsg(`Chamando paciente ${item.patient_name} na TV...`);
+    setMsg(`Chamando ${item.patient_name} na TV ${item.target_tv === '2' ? '02' : '01'}...`);
 
     const res = await callPatient(item.id, doctorId);
     setLoading(false);
@@ -80,23 +97,29 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
     await updatePatientStatus(item.id, 'in_progress');
     setActivePatient({ ...item, status: 'in_progress' });
     loadQueue();
+    setMsg(`Consulta iniciada com ${item.patient_name}.`);
+    setTimeout(() => setMsg(''), 3000);
   };
 
   const handleFinishAttendance = async (item) => {
     await updatePatientStatus(item.id, 'completed');
     setActivePatient(null);
     loadQueue();
-    setMsg(`Consulta do paciente ${item.patient_name} finalizada.`);
-    setTimeout(() => setMsg(''), 3000);
+    setMsg(`Consulta com ${item.patient_name} finalizada com sucesso.`);
+    setTimeout(() => setMsg(''), 3500);
   };
 
   const handleMarkAbsent = async (item) => {
     await updatePatientStatus(item.id, 'absent');
     setActivePatient(null);
     loadQueue();
+    setMsg(`Paciente ${item.patient_name} marcado como ausente.`);
+    setTimeout(() => setMsg(''), 3000);
   };
 
   const waitingPatients = queue.filter(p => p.status === 'waiting');
+
+  const tvBadgeLabel = targetTv === '2' ? 'TV 02 (1º Andar)' : targetTv === 'all' ? 'Ambas as TVs' : 'TV 01 (Térreo)';
 
   return (
     <div className="min-h-screen bg-cmip-950 text-slate-100 font-['Montserrat',sans-serif] p-4 md:p-8 cmip-plus-pattern relative">
@@ -109,7 +132,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
               <img src="/logo.png" alt="CMIP Logo" className="h-10 object-contain" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-black uppercase flex items-center gap-1">
                   <Stethoscope className="w-3 h-3" />
                   Painel do Médico
@@ -117,15 +140,27 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
                 <span className="px-2.5 py-0.5 rounded-full bg-cmip-500/20 text-cmip-400 border border-cmip-500/30 text-[10px] font-black uppercase">
                   {officeName}
                 </span>
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase flex items-center gap-1">
+                  <Monitor className="w-3 h-3" />
+                  {tvBadgeLabel}
+                </span>
               </div>
               <h1 className="text-xl md:text-2xl font-black text-white uppercase tracking-tight mt-1">
                 {doctorName}
               </h1>
-              <p className="text-xs text-cmip-100/70">Gestão de fila de espera e chamada por voz na TV</p>
+              <p className="text-xs text-cmip-100/70">Gestão de fila de espera e chamada por voz na {tvBadgeLabel}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              onClick={loadQueue}
+              className="p-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-100 rounded-xl border border-cmip-600/40 transition-colors"
+              title="Atualizar Fila"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+
             <button
               onClick={onNavigateTv}
               className="px-4 py-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-400 font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-2 transition-colors shadow-md"
@@ -144,8 +179,9 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
           </div>
         </header>
 
+        {/* NOTIFICAÇÃO */}
         {msg && (
-          <div className="p-4 rounded-2xl bg-cyan-950/90 border border-cyan-500/50 text-cyan-200 text-sm font-bold flex items-center gap-3 shadow-xl">
+          <div className="p-4 rounded-2xl bg-cyan-950/90 border border-cyan-500/50 text-cyan-200 text-sm font-bold flex items-center gap-3 shadow-xl animate-fade-in">
             <Sparkles className="w-5 h-5 text-cyan-400 shrink-0" />
             <span>{msg}</span>
           </div>
@@ -186,7 +222,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
                       )}
                     </div>
                     <p className="text-xs text-cmip-100/70 mt-1">
-                      Destino: <strong>{activePatient.office_name}</strong> | Médico: <strong>{activePatient.doctor_name}</strong>
+                      Destino: <strong>{activePatient.office_name}</strong> | Transmissão: <strong className="text-cyan-300">{activePatient.target_tv === '2' ? 'TV 02' : 'TV 01'}</strong>
                     </p>
                   </div>
 

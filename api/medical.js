@@ -22,11 +22,14 @@ export default async function handler(req, res) {
   };
 
   try {
-    // 1. GET: Retorna o estado atual da TV ou dados do sistema
+    // ========================================================
+    // 1. GET: Consultas de Estado das 3 TVs & Filas
+    // ========================================================
     if (req.method === 'GET') {
-      const { view, doctorId } = req.query || {};
+      const { view, doctorId, tvId, channel } = req.query || {};
+      const activeChannel = channel || tvId || 'all';
 
-      // Se for consulta de fila de médico específico
+      // A) Fila específica do médico
       if (view === 'doctor-queue' && doctorId) {
         const { data: queue, error } = await supabase
           .from('patient_calls')
@@ -37,7 +40,7 @@ export default async function handler(req, res) {
 
         if (error) throw error;
 
-        // Ordena colocando Preferenciais no topo da fila de espera
+        // Preferenciais no topo da fila de espera
         const sortedQueue = (queue || []).sort((a, b) => {
           if (a.status === 'called' && b.status !== 'called') return -1;
           if (b.status === 'called' && a.status !== 'called') return 1;
@@ -51,16 +54,131 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, queue: sortedQueue });
       }
 
-      // Estado Geral da TV (Última chamada médica ou senha + Histórico)
-      const { data: calls, error: callErr } = await supabase
+      // B) Dados para Setup da Recepção e Admin
+      if (view === 'setup') {
+        const { data: offices } = await supabase.from('offices').select('*').eq('active', true).order('name');
+        const { data: doctors } = await supabase.from('doctors').select('*').eq('active', true).order('name');
+
+        return res.status(200).json({
+          success: true,
+          offices: offices || [],
+          doctors: doctors || []
+        });
+      }
+
+      // --------------------------------------------------------
+      // C1) CANAL: TV DA RECEPÇÃO (Exclusivo para Senhas/Guichês)
+      // --------------------------------------------------------
+      if (activeChannel === 'recepcao') {
+        const { data: tickets } = await supabase
+          .from('tickets')
+          .select('*')
+          .neq('desk', 'Aguardando')
+          .neq('type', 'Sistema')
+          .order('id', { ascending: false })
+          .limit(10);
+
+        let currentCall = null;
+        let history = [];
+
+        if (tickets && tickets.length > 0) {
+          const t = tickets[0];
+          currentCall = {
+            id: t.id,
+            callId: t.call_id || t.id,
+            number: t.number,
+            desk: t.desk,
+            targetTv: 'recepcao',
+            type: t.type,
+            timestamp: formatBrasiliaTime(new Date(t.created_at)),
+            isRepeat: false
+          };
+
+          history = tickets.map(r => ({
+            id: r.id,
+            callId: r.call_id || r.id,
+            number: r.number,
+            desk: r.desk,
+            targetTv: 'recepcao',
+            type: r.type,
+            timestamp: formatBrasiliaTime(new Date(r.created_at))
+          }));
+        }
+
+        return res.status(200).json({
+          success: true,
+          channel: 'recepcao',
+          channelTitle: 'TV Recepção & Guichês',
+          currentTicket: currentCall,
+          history: history
+        });
+      }
+
+      // --------------------------------------------------------
+      // C2) CANAIS MÉDICOS: TV 01 ou TV 02 (Consultórios Específicos)
+      // --------------------------------------------------------
+      if (activeChannel === '1' || activeChannel === '2') {
+        const { data: calls } = await supabase
+          .from('patient_calls')
+          .select('*')
+          .in('target_tv', [activeChannel, 'all'])
+          .order('id', { ascending: false })
+          .limit(15);
+
+        let currentCall = null;
+        let history = [];
+
+        if (calls && calls.length > 0) {
+          const latest = calls[0];
+          currentCall = {
+            id: latest.id,
+            callId: latest.call_id || latest.id,
+            patientName: latest.patient_name,
+            doctorName: latest.doctor_name,
+            officeName: latest.office_name,
+            targetTv: latest.target_tv || activeChannel,
+            type: latest.type,
+            status: latest.status,
+            timestamp: formatBrasiliaTime(new Date(latest.called_at || latest.created_at)),
+            isRepeat: false
+          };
+
+          history = calls.map(c => ({
+            id: c.id,
+            callId: c.call_id || c.id,
+            patientName: c.patient_name,
+            doctorName: c.doctor_name,
+            officeName: c.office_name,
+            targetTv: c.target_tv || activeChannel,
+            type: c.type,
+            status: c.status,
+            timestamp: formatBrasiliaTime(new Date(c.called_at || c.created_at))
+          }));
+        }
+
+        return res.status(200).json({
+          success: true,
+          channel: activeChannel,
+          channelTitle: activeChannel === '1' ? 'TV Consultórios 01 (Térreo)' : 'TV Consultórios 02 (1º Andar)',
+          currentTicket: currentCall,
+          history: history
+        });
+      }
+
+      // --------------------------------------------------------
+      // C3) CANAL GERAL: Todas as Chamadas (Médicas + Senhas)
+      // --------------------------------------------------------
+      const { data: calls } = await supabase
         .from('patient_calls')
         .select('*')
         .order('id', { ascending: false })
-        .limit(10);
+        .limit(15);
 
       const { data: tickets } = await supabase
         .from('tickets')
         .select('*')
+        .neq('desk', 'Aguardando')
+        .neq('type', 'Sistema')
         .order('id', { ascending: false })
         .limit(10);
 
@@ -75,6 +193,7 @@ export default async function handler(req, res) {
           patientName: latest.patient_name,
           doctorName: latest.doctor_name,
           officeName: latest.office_name,
+          targetTv: latest.target_tv || '1',
           type: latest.type,
           status: latest.status,
           timestamp: formatBrasiliaTime(new Date(latest.called_at || latest.created_at)),
@@ -87,50 +206,53 @@ export default async function handler(req, res) {
           patientName: c.patient_name,
           doctorName: c.doctor_name,
           officeName: c.office_name,
+          targetTv: c.target_tv || '1',
           type: c.type,
           status: c.status,
           timestamp: formatBrasiliaTime(new Date(c.called_at || c.created_at))
         }));
       } else if (tickets && tickets.length > 0) {
-        const real = tickets.filter(t => t.type !== 'Sistema');
-        if (real.length > 0) {
-          const t = real[0];
-          currentCall = {
-            id: t.id,
-            callId: t.call_id || t.id,
-            number: t.number,
-            desk: t.desk,
-            type: t.type,
-            timestamp: formatBrasiliaTime(new Date(t.created_at))
-          };
-          history = real.map(r => ({
-            id: r.id,
-            callId: r.call_id || r.id,
-            number: r.number,
-            desk: r.desk,
-            type: r.type,
-            timestamp: formatBrasiliaTime(new Date(r.created_at))
-          }));
-        }
+        const t = tickets[0];
+        currentCall = {
+          id: t.id,
+          callId: t.call_id || t.id,
+          number: t.number,
+          desk: t.desk,
+          targetTv: 'recepcao',
+          type: t.type,
+          timestamp: formatBrasiliaTime(new Date(t.created_at))
+        };
+        history = tickets.map(r => ({
+          id: r.id,
+          callId: r.call_id || r.id,
+          number: r.number,
+          desk: r.desk,
+          targetTv: 'recepcao',
+          type: r.type,
+          timestamp: formatBrasiliaTime(new Date(r.created_at))
+        }));
       }
 
       return res.status(200).json({
         success: true,
+        channel: 'all',
+        channelTitle: 'Painel Geral CMIP',
         currentTicket: currentCall,
         history: history
       });
     }
 
-    // 2. POST: Ações e Comandos
+    // ========================================================
+    // 2. POST: Ações e Comandos do Sistema
+    // ========================================================
     if (req.method === 'POST') {
       const { action, payload } = req.body || {};
 
-      // A) LOGIN DE USUÁRIO
+      // A) LOGIN DE USUÁRIOS
       if (action === 'login') {
         const { username, password } = payload || {};
         
-        // Tenta buscar no banco Supabase
-        const { data: user, error } = await supabase
+        const { data: user, error } = await supabaseAdmin
           .from('users')
           .select('*, doctor:doctors(*)')
           .eq('username', (username || '').trim())
@@ -152,12 +274,11 @@ export default async function handler(req, res) {
           });
         }
 
-        // Fallback para credenciais padrão caso o banco ainda não tenha sido populado
         const defaults = {
           admin: { id: 1, name: 'Administrador Geral', role: 'admin' },
           recepcao: { id: 2, name: 'Recepção CMIP', role: 'receptionist' },
-          dr_carlos: { id: 3, name: 'Dr. Carlos Eduardo', role: 'doctor', doctorId: 1, doctor: { id: 1, name: 'Dr. Carlos Eduardo', office_name: 'Consultório 01' } },
-          dra_helena: { id: 4, name: 'Dra. Helena Martins', role: 'doctor', doctorId: 2, doctor: { id: 2, name: 'Dra. Helena Martins', office_name: 'Consultório 02' } }
+          dr_carlos: { id: 4, name: 'Dr. Carlos Eduardo', role: 'doctor', doctorId: 4, doctor: { id: 4, name: 'Dr. Carlos Eduardo', office_name: 'Consultório 01 - Clínica Geral' } },
+          dra_helena: { id: 5, name: 'Dra. Helena Martins', role: 'doctor', doctorId: 5, doctor: { id: 5, name: 'Dra. Helena Martins', office_name: 'Consultório 02 - Cardiologia' } }
         };
 
         if (defaults[username] && (password === 'admin123' || password === 'recepcao123' || password === 'medico123' || password === '123456')) {
@@ -170,35 +291,243 @@ export default async function handler(req, res) {
         return res.status(401).json({ success: false, message: 'Usuário ou senha incorretos.' });
       }
 
-      // B) LISTAR CONSULTÓRIOS E MÉDICOS ATIVOS (Para a Recepção)
-      if (action === 'get-offices-doctors') {
-        const { data: offices } = await supabase.from('offices').select('*').eq('active', true).order('name');
-        const { data: doctors } = await supabase.from('doctors').select('*').eq('active', true).order('name');
-
-        return res.status(200).json({
-          success: true,
-          offices: offices || [
-            { id: 1, name: 'Consultório 01' },
-            { id: 2, name: 'Consultório 02' },
-            { id: 3, name: 'Consultório 03' }
-          ],
-          doctors: doctors || [
-            { id: 1, name: 'Dr. Carlos Eduardo', specialty: 'Clínica Geral', office_name: 'Consultório 01' },
-            { id: 2, name: 'Dra. Helena Martins', specialty: 'Cardiologia', office_name: 'Consultório 02' },
-            { id: 3, name: 'Dr. Roberto Silva', specialty: 'Ortopedia', office_name: 'Consultório 03' }
-          ]
-        });
+      // B) CRUD DE MÉDICOS
+      if (action === 'list-doctors') {
+        const { data: doctors, error } = await supabaseAdmin
+          .from('doctors')
+          .select('*, office:offices(*)')
+          .order('name');
+        if (error) throw error;
+        return res.status(200).json({ success: true, doctors: doctors || [] });
       }
 
-      // C) CADASTRAR PACIENTE DIRETO NA FILA DO MÉDICO (Sem Triagem)
-      if (action === 'register-patient-call') {
-        const { patientName, document, phone, doctorId, doctorName, officeName, type = 'Normal', createdBy } = payload || {};
+      if (action === 'create-doctor') {
+        const { name, crm, crm_uf = 'SP', specialty = 'Clínica Geral', phone, email, office_id, createUser, username, password } = payload || {};
+        
+        if (!name || !name.trim()) {
+          return res.status(400).json({ success: false, message: 'Nome do médico é obrigatório.' });
+        }
+
+        let officeName = null;
+        if (office_id) {
+          const { data: off } = await supabaseAdmin.from('offices').select('name').eq('id', office_id).single();
+          if (off) officeName = off.name;
+        }
+
+        const { data: doc, error } = await supabaseAdmin
+          .from('doctors')
+          .insert([{
+            name: name.trim(),
+            crm: (crm || '').trim(),
+            crm_uf: (crm_uf || 'SP').trim().toUpperCase(),
+            specialty: (specialty || 'Clínica Geral').trim(),
+            phone: (phone || '').trim() || null,
+            email: (email || '').trim() || null,
+            office_id: office_id ? parseInt(office_id, 10) : null,
+            office_name: officeName,
+            active: true
+          }])
+          .select();
+
+        if (error) throw error;
+        const newDoctor = doc && doc[0] ? doc[0] : null;
+
+        if (createUser && newDoctor && username && password) {
+          try {
+            await supabaseAdmin.from('users').insert([{
+              name: newDoctor.name,
+              username: username.trim(),
+              password: password.trim(),
+              role: 'doctor',
+              doctor_id: newDoctor.id,
+              active: true
+            }]);
+          } catch (userErr) {
+            console.error('[Create Doctor User Error]', userErr);
+          }
+        }
+
+        return res.status(200).json({ success: true, message: 'Médico cadastrado com sucesso!', doctor: newDoctor });
+      }
+
+      if (action === 'update-doctor') {
+        const { id, name, crm, crm_uf, specialty, phone, email, office_id, active } = payload || {};
+        if (!id) return res.status(400).json({ success: false, message: 'ID do médico é obrigatório.' });
+
+        let officeName = null;
+        if (office_id) {
+          const { data: off } = await supabaseAdmin.from('offices').select('name').eq('id', office_id).single();
+          if (off) officeName = off.name;
+        }
+
+        const updateData = { updated_at: new Date().toISOString() };
+        if (name !== undefined) updateData.name = name.trim();
+        if (crm !== undefined) updateData.crm = crm.trim();
+        if (crm_uf !== undefined) updateData.crm_uf = crm_uf.trim().toUpperCase();
+        if (specialty !== undefined) updateData.specialty = specialty.trim();
+        if (phone !== undefined) updateData.phone = phone.trim() || null;
+        if (email !== undefined) updateData.email = email.trim() || null;
+        if (office_id !== undefined) {
+          updateData.office_id = office_id ? parseInt(office_id, 10) : null;
+          updateData.office_name = officeName;
+        }
+        if (active !== undefined) updateData.active = Boolean(active);
+
+        const { data: updated, error } = await supabaseAdmin
+          .from('doctors')
+          .update(updateData)
+          .eq('id', id)
+          .select();
+
+        if (error) throw error;
+        return res.status(200).json({ success: true, message: 'Dados do médico atualizados!', doctor: updated?.[0] });
+      }
+
+      if (action === 'delete-doctor') {
+        const { id, hardDelete } = payload || {};
+        if (!id) return res.status(400).json({ success: false, message: 'ID obrigatório.' });
+
+        if (hardDelete) {
+          await supabaseAdmin.from('users').delete().eq('doctor_id', id);
+          const { error } = await supabaseAdmin.from('doctors').delete().eq('id', id);
+          if (error) throw error;
+        } else {
+          await supabaseAdmin.from('doctors').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id);
+          await supabaseAdmin.from('users').update({ active: false }).eq('doctor_id', id);
+        }
+
+        return res.status(200).json({ success: true, message: 'Médico removido/desativado com sucesso.' });
+      }
+
+      // C) CRUD DE CONSULTÓRIOS
+      if (action === 'list-offices') {
+        const { data: offices, error } = await supabaseAdmin.from('offices').select('*').order('name');
+        if (error) throw error;
+        return res.status(200).json({ success: true, offices: offices || [] });
+      }
+
+      if (action === 'create-office') {
+        const { name, code, location, target_tv = '1' } = payload || {};
+        if (!name || !name.trim()) return res.status(400).json({ success: false, message: 'Nome da sala é obrigatório.' });
+
+        const safeCode = (code || name.replace(/[^A-Za-z0-9]/g, '').substring(0, 10)).toUpperCase();
+
+        const { data: off, error } = await supabaseAdmin
+          .from('offices')
+          .insert([{
+            name: name.trim(),
+            code: safeCode,
+            location: (location || '').trim() || null,
+            target_tv: ['1', '2', 'all'].includes(target_tv) ? target_tv : '1',
+            active: true
+          }])
+          .select();
+
+        if (error) throw error;
+        return res.status(200).json({ success: true, message: 'Consultório cadastrado com sucesso!', office: off?.[0] });
+      }
+
+      if (action === 'update-office') {
+        const { id, name, code, location, target_tv, active } = payload || {};
+        if (!id) return res.status(400).json({ success: false, message: 'ID obrigatório.' });
+
+        const updateData = { updated_at: new Date().toISOString() };
+        if (name !== undefined) updateData.name = name.trim();
+        if (code !== undefined) updateData.code = code.trim().toUpperCase();
+        if (location !== undefined) updateData.location = location.trim() || null;
+        if (target_tv !== undefined && ['1', '2', 'all'].includes(target_tv)) updateData.target_tv = target_tv;
+        if (active !== undefined) updateData.active = Boolean(active);
+
+        const { data: updated, error } = await supabaseAdmin
+          .from('offices')
+          .update(updateData)
+          .eq('id', id)
+          .select();
+
+        if (error) throw error;
+        return res.status(200).json({ success: true, message: 'Consultório atualizado!', office: updated?.[0] });
+      }
+
+      if (action === 'delete-office') {
+        const { id } = payload || {};
+        await supabaseAdmin.from('offices').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id);
+        return res.status(200).json({ success: true, message: 'Consultório desativado.' });
+      }
+
+      // D) CRUD DE USUÁRIOS
+      if (action === 'list-users') {
+        const { data: users, error } = await supabaseAdmin
+          .from('users')
+          .select('id, name, username, role, doctor_id, active, created_at')
+          .order('name');
+        if (error) throw error;
+        return res.status(200).json({ success: true, users: users || [] });
+      }
+
+      if (action === 'create-user') {
+        const { name, username, password, role = 'receptionist', doctor_id } = payload || {};
+        if (!username || !password) return res.status(400).json({ success: false, message: 'Usuário e senha são obrigatórios.' });
+
+        const { data: user, error } = await supabaseAdmin
+          .from('users')
+          .insert([{
+            name: (name || username).trim(),
+            username: username.trim(),
+            password: password.trim(),
+            role: ['admin', 'receptionist', 'doctor'].includes(role) ? role : 'receptionist',
+            doctor_id: doctor_id ? parseInt(doctor_id, 10) : null,
+            active: true
+          }])
+          .select();
+
+        if (error) throw error;
+        return res.status(200).json({ success: true, message: 'Usuário criado com sucesso!', user: user?.[0] });
+      }
+
+      if (action === 'update-user') {
+        const { id, name, password, role, doctor_id, active } = payload || {};
+        if (!id) return res.status(400).json({ success: false, message: 'ID do usuário obrigatório.' });
+
+        const updateData = { updated_at: new Date().toISOString() };
+        if (name !== undefined) updateData.name = name.trim();
+        if (password && password.trim()) updateData.password = password.trim();
+        if (role !== undefined) updateData.role = role;
+        if (doctor_id !== undefined) updateData.doctor_id = doctor_id ? parseInt(doctor_id, 10) : null;
+        if (active !== undefined) updateData.active = Boolean(active);
+
+        const { data: updated, error } = await supabaseAdmin.from('users').update(updateData).eq('id', id).select();
+        if (error) throw error;
+        return res.status(200).json({ success: true, message: 'Usuário atualizado com sucesso!', user: updated?.[0] });
+      }
+
+      // E) ENCAMINHAMENTO DE PACIENTE PELA RECEPÇÃO
+      if (action === 'register-patient' || action === 'register-patient-call') {
+        const { patientName, document, phone, doctorId, doctorName, officeName, targetTv, type = 'Normal', createdBy } = payload || {};
 
         if (!patientName || !patientName.trim()) {
           return res.status(400).json({ success: false, message: 'Nome do paciente é obrigatório.' });
         }
 
-        // 1. Cadastra/Atualiza Paciente
+        let resolvedTargetTv = targetTv || '1';
+        let resolvedOffice = officeName || 'Consultório';
+        let resolvedDoctorName = doctorName || 'Médico de Plantão';
+
+        if (doctorId) {
+          const { data: docData } = await supabaseAdmin
+            .from('doctors')
+            .select('*, office:offices(*)')
+            .eq('id', doctorId)
+            .single();
+
+          if (docData) {
+            resolvedDoctorName = docData.name;
+            if (docData.office) {
+              resolvedOffice = docData.office.name;
+              resolvedTargetTv = docData.office.target_tv || '1';
+            }
+          }
+        }
+
         let patientId = null;
         try {
           const { data: pat } = await supabaseAdmin
@@ -208,15 +537,15 @@ export default async function handler(req, res) {
           if (pat && pat[0]) patientId = pat[0].id;
         } catch (e) {}
 
-        // 2. Insere na Fila do Médico com status 'waiting'
         const { data: callItem, error: callErr } = await supabaseAdmin
           .from('patient_calls')
           .insert([{
             patient_id: patientId,
             patient_name: patientName.trim(),
             doctor_id: doctorId || null,
-            doctor_name: doctorName || 'Médico de Plantão',
-            office_name: officeName || 'Consultório',
+            doctor_name: resolvedDoctorName,
+            office_name: resolvedOffice,
+            target_tv: resolvedTargetTv,
             type: type,
             status: 'waiting',
             created_by_user: createdBy || 'Recepção'
@@ -227,15 +556,14 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           success: true,
-          message: 'Paciente encaminhado com sucesso para a fila do médico!',
-          call: callItem && callItem[0] ? callItem[0] : null
+          message: `Paciente encaminhado para ${resolvedDoctorName} (${resolvedOffice}) na TV ${resolvedTargetTv === 'all' ? 'Ambas' : '0' + resolvedTargetTv}!`,
+          call: callItem?.[0]
         });
       }
 
-      // D) MÉDICO CHAMA PACIENTE NA TV
+      // F) MÉDICO CHAMA PACIENTE NA TV
       if (action === 'call-patient') {
         const { callId, doctorId } = payload || {};
-
         const nowIso = new Date().toISOString();
 
         const { data: updated, error } = await supabaseAdmin
@@ -252,6 +580,7 @@ export default async function handler(req, res) {
           patientName: updated[0].patient_name,
           doctorName: updated[0].doctor_name,
           officeName: updated[0].office_name,
+          targetTv: updated[0].target_tv || '1',
           type: updated[0].type,
           status: 'called',
           timestamp: formatBrasiliaTime(),
@@ -260,15 +589,14 @@ export default async function handler(req, res) {
 
         return res.status(200).json({
           success: true,
-          message: 'Chamada enviada para a TV.',
+          message: 'Chamada enviada para a TV correspondente.',
           ticket
         });
       }
 
-      // E) MÉDICO RECHAMA PACIENTE NA TV
-      if (action === 'repeat-call') {
+      // G) MÉDICO RECHAMA PACIENTE NA TV
+      if (action === 'repeat-patient' || action === 'repeat-call') {
         const { callId } = payload || {};
-
         const nowIso = new Date().toISOString();
 
         const { data: updated, error } = await supabaseAdmin
@@ -285,6 +613,7 @@ export default async function handler(req, res) {
           patientName: updated[0].patient_name,
           doctorName: updated[0].doctor_name,
           officeName: updated[0].office_name,
+          targetTv: updated[0].target_tv || '1',
           type: updated[0].type,
           status: 'called',
           timestamp: formatBrasiliaTime(),
@@ -298,26 +627,29 @@ export default async function handler(req, res) {
         });
       }
 
-      // F) ATUALIZAR STATUS (Em Atendimento / Finalizado / Ausente)
+      // H) ATUALIZAR STATUS DO ATENDIMENTO
       if (action === 'update-status') {
         const { callId, status } = payload || {};
+        const updateData = { status };
+        if (status === 'completed') {
+          updateData.finished_at = new Date().toISOString();
+        }
 
         const { data: updated, error } = await supabaseAdmin
           .from('patient_calls')
-          .update({ status: status })
+          .update(updateData)
           .eq('id', callId)
           .select();
 
         if (error) throw error;
-
         return res.status(200).json({
           success: true,
           message: `Status atualizado para ${status}`,
-          call: updated && updated[0] ? updated[0] : null
+          call: updated?.[0]
         });
       }
 
-      // G) ADMIN: ZERAR FILA / LIMPAR ATENDIMENTOS DO DIA
+      // I) ADMIN: ZERAR TODAS AS FILAS
       if (action === 'reset-all') {
         await supabaseAdmin.from('patient_calls').delete().gt('id', 0);
         await supabaseAdmin.from('tickets').delete().gt('id', 0);

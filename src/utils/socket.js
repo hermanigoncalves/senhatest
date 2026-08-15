@@ -16,12 +16,20 @@ export const socket = io(URL, {
 });
 
 // ==========================================
-// FUNÇÕES DE SINCRONIZAÇÃO DE SENHAS (CMIP)
+// FUNÇÕES DE SINCRONIZAÇÃO DAS 3 TVs (CMIP)
 // ==========================================
 
-export async function fetchTvState() {
+/**
+ * Busca o estado da TV para o canal específico:
+ * - 'recepcao': Somente senhas numéricas dos guichês
+ * - '1': Somente chamadas médicas da TV 01 (Térreo)
+ * - '2': Somente chamadas médicas da TV 02 (1º Andar)
+ * - 'all': Todas as chamadas
+ */
+export async function fetchTvState(channel = 'all') {
   try {
-    const res = await fetch('/api/ticket');
+    const url = `/api/medical?view=tv&channel=${encodeURIComponent(channel)}`;
+    const res = await fetch(url);
     if (res.ok) return await res.json();
     return null;
   } catch (err) {
@@ -29,13 +37,12 @@ export async function fetchTvState() {
   }
 }
 
-export async function fetchVercelState() {
-  return await fetchTvState();
+export async function fetchVercelState(channel = 'all') {
+  return await fetchTvState(channel);
 }
 
 /**
  * Emite uma nova senha a partir do Totem (Tablet).
- * A senha entra com status 'Aguardando' e NÃO vai para a TV até que o atendente chame.
  */
 export async function issueTotemTicket(ticketType = 'Normal') {
   if (!isVercel && socket.connected) {
@@ -145,7 +152,7 @@ export async function resetQueueVercel() {
 }
 
 // ==========================================
-// FUNÇÕES DO FLUXO MÉDICO / RECEPÇÃO / ADMIN
+// FLUXO MÉDICO, RECEPÇÃO, ADMIN & MULTI-TV
 // ==========================================
 
 export async function fetchOfficesAndDoctors() {
@@ -158,12 +165,159 @@ export async function fetchOfficesAndDoctors() {
   }
 }
 
+// --- CRUD MÉDICOS ---
+export async function fetchDoctorsList() {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list-doctors' })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, doctors: [] };
+  }
+}
+
+export async function createDoctor(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create-doctor', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function updateDoctor(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update-doctor', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function deleteDoctor(id, hardDelete = false) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-doctor', payload: { id, hardDelete } })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// --- CRUD CONSULTÓRIOS (com Multi-TV) ---
+export async function fetchOfficesList() {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list-offices' })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, offices: [] };
+  }
+}
+
+export async function createOffice(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create-office', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function updateOffice(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update-office', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function deleteOffice(id) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'delete-office', payload: { id } })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// --- CRUD USUÁRIOS ---
+export async function fetchUsersList() {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'list-users' })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, users: [] };
+  }
+}
+
+export async function createUser(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'create-user', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function updateUser(payload) {
+  try {
+    const res = await fetch('/api/medical', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update-user', payload })
+    });
+    return await res.json();
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+// --- FLUXO DE FILAS E ATENDIMENTO ---
 export async function registerPatientCall(payload) {
   try {
     const res = await fetch('/api/medical', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'register-patient', ...payload })
+      body: JSON.stringify({ action: 'register-patient-call', payload })
     });
     return await res.json();
   } catch (e) {
@@ -186,7 +340,7 @@ export async function callPatient(callId, doctorId) {
     const res = await fetch('/api/medical', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'call-patient', callId, doctorId })
+      body: JSON.stringify({ action: 'call-patient', payload: { callId, doctorId } })
     });
     return await res.json();
   } catch (e) {
@@ -199,7 +353,7 @@ export async function repeatPatientCall(callId) {
     const res = await fetch('/api/medical', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'repeat-patient', callId })
+      body: JSON.stringify({ action: 'repeat-call', payload: { callId } })
     });
     return await res.json();
   } catch (e) {
@@ -212,7 +366,7 @@ export async function updatePatientStatus(callId, status) {
     const res = await fetch('/api/medical', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'update-status', callId, status })
+      body: JSON.stringify({ action: 'update-status', payload: { callId, status } })
     });
     return await res.json();
   } catch (e) {
@@ -238,7 +392,7 @@ export async function loginUser(username, password) {
     const res = await fetch('/api/medical', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'login', username, password })
+      body: JSON.stringify({ action: 'login', payload: { username, password } })
     });
     return await res.json();
   } catch (e) {
