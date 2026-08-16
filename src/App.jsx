@@ -6,6 +6,56 @@ import DoctorPanel from './components/DoctorPanel';
 import ReceptionPanel from './components/ReceptionPanel';
 import AdminPanel from './components/AdminPanel';
 import LoginModal from './components/LoginModal';
+import { verifySession, clearAuthSession, getAuthToken } from './utils/socket';
+import { ShieldAlert, ArrowLeft, LogOut, Lock } from 'lucide-react';
+
+function ForbiddenView({ user, requestedPath, onNavigateHome, onLogout }) {
+  const roleNameMap = {
+    doctor: 'Médico',
+    receptionist: 'Recepcionista',
+    admin: 'Administrador'
+  };
+
+  return (
+    <div className="min-h-screen bg-cmip-950 text-slate-100 flex items-center justify-center p-4 font-['Montserrat',sans-serif] cmip-plus-pattern relative">
+      <div className="max-w-md w-full bg-cmip-900/90 border border-rose-600/40 p-8 rounded-3xl shadow-2xl backdrop-blur-xl text-center space-y-6 relative z-10 animate-fade-in">
+        <div className="w-16 h-16 bg-rose-500/20 text-rose-400 rounded-3xl mx-auto flex items-center justify-center border border-rose-500/30 shadow-lg">
+          <ShieldAlert className="w-9 h-9" />
+        </div>
+
+        <div>
+          <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-black uppercase tracking-wider">
+            Erro 403 - Acesso Proibido
+          </span>
+          <h1 className="text-xl md:text-2xl font-black text-white uppercase tracking-tight mt-3">
+            Módulo Não Autorizado
+          </h1>
+          <p className="text-xs text-cmip-100/70 mt-2 leading-relaxed">
+            Seu perfil atual de <strong className="text-rose-300">{roleNameMap[user?.role] || user?.role}</strong> não tem permissão para acessar a rota <code className="bg-cmip-950 px-1.5 py-0.5 rounded text-rose-400 font-mono">{requestedPath}</code>.
+          </p>
+        </div>
+
+        <div className="pt-2 flex flex-col gap-2.5">
+          <button
+            onClick={onNavigateHome}
+            className="w-full py-3 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 font-black rounded-xl text-xs shadow-lg flex items-center justify-center gap-2 transition-transform active:scale-95"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span>Voltar ao Meu Painel Autorizado</span>
+          </button>
+
+          <button
+            onClick={onLogout}
+            className="w-full py-2.5 bg-cmip-950 hover:bg-rose-950/80 text-rose-300 hover:text-rose-200 border border-cmip-600/40 rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Encerrar Sessão / Trocar de Usuário</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
@@ -24,6 +74,18 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
+  // Validação de Sessão Viva contra o Backend
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token && currentUser) {
+      verifySession().then(res => {
+        if (!res?.success) {
+          handleLogout();
+        }
+      }).catch(() => {});
+    }
+  }, []);
+
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
     try {
@@ -33,9 +95,8 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
-    try {
-      localStorage.removeItem('cmip_user');
-    } catch {}
+    clearAuthSession();
+    navigateTo('/login');
   };
 
   const navigateTo = (newPath) => {
@@ -81,14 +142,87 @@ export default function App() {
     return <TotemTablet />;
   }
 
-  // 6. Rota Explícita de Login
-  if (path === '/login') {
+  // 6. Guarda de Rotas: SE NÃO ESTIVER AUTENTICADO, EXIBE OBRIGATORIAMENTE A TELA DE LOGIN
+  if (!currentUser) {
     return <LoginModal onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // 7. Rotas com Usuário Autenticado
-  if (currentUser) {
-    if (currentUser.role === 'doctor') {
+  // 7. Controle de Acesso Baseado em Papéis (RBAC) para Usuários Autenticados
+  // ------------------------------------------------------------------------
+
+  // A) PERFIL MÉDICO (doctor): Acesso exclusivo ao seu consultório e fila
+  if (currentUser.role === 'doctor') {
+    // Se tentar acessar /admin ou /recepcao, bloqueia com 403
+    if (path === '/admin' || path === '/recepcao' || path === '/cadastro' || path === '/atendente') {
+      return (
+        <ForbiddenView 
+          user={currentUser}
+          requestedPath={path}
+          onNavigateHome={() => navigateTo('/medico')}
+          onLogout={handleLogout}
+        />
+      );
+    }
+
+    return (
+      <DoctorPanel 
+        user={currentUser} 
+        onLogout={handleLogout} 
+        onNavigateTv={() => navigateTo('/tv1')} 
+      />
+    );
+  }
+
+  // B) PERFIL RECEPCIONISTA (receptionist): Acesso ao Cadastro de Pacientes e Atendimento de Guichês
+  if (currentUser.role === 'receptionist') {
+    // Se tentar acessar /admin ou /medico, bloqueia com 403
+    if (path === '/admin' || path === '/medico' || path === '/doctor') {
+      return (
+        <ForbiddenView 
+          user={currentUser}
+          requestedPath={path}
+          onNavigateHome={() => navigateTo('/recepcao')}
+          onLogout={handleLogout}
+        />
+      );
+    }
+
+    if (path === '/atendente' || path === '/guiche' || path === '/senhas') {
+      return (
+        <AttendantPanel 
+          user={currentUser}
+          onLogout={handleLogout}
+          onNavigateReception={() => navigateTo('/recepcao')}
+          onNavigateLogin={() => navigateTo('/login')}
+        />
+      );
+    }
+
+    // Padrão do Recepcionista: Painel de Cadastro e Encaminhamento de Pacientes
+    return (
+      <ReceptionPanel 
+        user={currentUser} 
+        onLogout={handleLogout} 
+        onNavigateTv={() => navigateTo('/tv-recepcao')}
+        onNavigateAttendant={() => navigateTo('/atendente')}
+      />
+    );
+  }
+
+  // C) PERFIL ADMINISTRADOR (admin): Acesso irrestrito a todas as áreas
+  if (currentUser.role === 'admin') {
+    if (path === '/recepcao' || path === '/cadastro') {
+      return (
+        <ReceptionPanel 
+          user={currentUser} 
+          onLogout={handleLogout} 
+          onNavigateTv={() => navigateTo('/tv-recepcao')}
+          onNavigateAdmin={() => navigateTo('/admin')}
+        />
+      );
+    }
+
+    if (path === '/medico' || path === '/doctor') {
       return (
         <DoctorPanel 
           user={currentUser} 
@@ -98,72 +232,28 @@ export default function App() {
       );
     }
 
-    if (currentUser.role === 'admin') {
+    if (path === '/atendente' || path === '/guiche' || path === '/senhas') {
       return (
-        <AdminPanel 
-          user={currentUser} 
-          onLogout={handleLogout} 
-          onNavigateTv={() => navigateTo('/tv')} 
+        <AttendantPanel 
+          user={currentUser}
+          onLogout={handleLogout}
+          onNavigateReception={() => navigateTo('/recepcao')}
+          onNavigateAdmin={() => navigateTo('/admin')}
         />
       );
     }
 
-    if (currentUser.role === 'receptionist') {
-      return (
-        <ReceptionPanel 
-          user={currentUser} 
-          onLogout={handleLogout} 
-          onNavigateTv={() => navigateTo('/tv-recepcao')} 
-        />
-      );
-    }
-  }
-
-  // 8. Rotas Diretas por URL (se não estiver logado, exibe tela de login)
-  if (path === '/medico' || path === '/doctor') {
-    return currentUser?.role === 'doctor' ? (
-      <DoctorPanel 
-        user={currentUser} 
-        onLogout={handleLogout} 
-        onNavigateTv={() => navigateTo('/tv1')} 
-      />
-    ) : (
-      <LoginModal onLoginSuccess={handleLoginSuccess} />
-    );
-  }
-
-  if (path === '/recepcao' || path === '/cadastro') {
-    return currentUser?.role === 'receptionist' ? (
-      <ReceptionPanel 
-        user={currentUser} 
-        onLogout={handleLogout} 
-        onNavigateTv={() => navigateTo('/tv-recepcao')} 
-      />
-    ) : (
-      <LoginModal onLoginSuccess={handleLoginSuccess} />
-    );
-  }
-
-  if (path === '/admin') {
-    return currentUser?.role === 'admin' ? (
+    // Padrão do Admin: Painel Administrativo Geral
+    return (
       <AdminPanel 
         user={currentUser} 
         onLogout={handleLogout} 
         onNavigateTv={() => navigateTo('/tv')} 
       />
-    ) : (
-      <LoginModal onLoginSuccess={handleLoginSuccess} />
     );
   }
 
-  // 9. Padrão: Painel Tradicional do Atendente de Guichê
-  return (
-    <AttendantPanel 
-      onNavigateLogin={() => navigateTo('/login')} 
-      onNavigateReception={() => navigateTo('/recepcao')}
-      onNavigateDoctor={() => navigateTo('/medico')}
-      onNavigateAdmin={() => navigateTo('/admin')}
-    />
-  );
+  // Fallback de segurança: se role não for reconhecido, força login
+  return <LoginModal onLoginSuccess={handleLoginSuccess} />;
 }
 

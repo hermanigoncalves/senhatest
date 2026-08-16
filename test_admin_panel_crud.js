@@ -1,7 +1,9 @@
-import medicalHandler from './api/medical.js';
+import medicalHandler, { generateAuthToken } from './api/medical.js';
+
+const adminToken = generateAuthToken({ id: 1, name: 'Administrador Geral', username: 'admin', role: 'admin' });
 
 function createMockReqRes(method, body = null, query = {}) {
-  const req = { method, body, query, headers: {} };
+  const req = { method, body, query, headers: { authorization: `Bearer ${adminToken}` } };
   let statusCode = 200;
   let responseData = null;
 

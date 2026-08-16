@@ -16,6 +16,52 @@ export const socket = io(URL, {
 });
 
 // ==========================================
+// GERENCIAMENTO DE TOKENS E SESSÃO SEGURA
+// ==========================================
+
+export function getAuthToken() {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem('cmip_auth_token') || null;
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthToken(token) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (token) localStorage.setItem('cmip_auth_token', token);
+    else localStorage.removeItem('cmip_auth_token');
+  } catch {}
+}
+
+export function clearAuthSession() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem('cmip_auth_token');
+    localStorage.removeItem('cmip_user');
+  } catch {}
+}
+
+export async function fetchWithAuth(url, options = {}) {
+  const token = getAuthToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  return await fetch(url, {
+    ...options,
+    headers
+  });
+}
+
+// ==========================================
 // FUNÇÕES DE SINCRONIZAÇÃO DAS 3 TVs (CMIP)
 // ==========================================
 
@@ -181,9 +227,8 @@ export async function fetchOfficesAndDoctors() {
 // --- CRUD MÉDICOS ---
 export async function fetchDoctorsList() {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'list-doctors' })
     });
     return await res.json();
@@ -194,9 +239,8 @@ export async function fetchDoctorsList() {
 
 export async function createDoctor(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'create-doctor', payload })
     });
     return await res.json();
@@ -207,9 +251,8 @@ export async function createDoctor(payload) {
 
 export async function updateDoctor(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update-doctor', payload })
     });
     return await res.json();
@@ -220,9 +263,8 @@ export async function updateDoctor(payload) {
 
 export async function deleteDoctor(id, hardDelete = false) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete-doctor', payload: { id, hardDelete } })
     });
     return await res.json();
@@ -234,9 +276,8 @@ export async function deleteDoctor(id, hardDelete = false) {
 // --- CRUD CONSULTÓRIOS (com Multi-TV) ---
 export async function fetchOfficesList() {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'list-offices' })
     });
     return await res.json();
@@ -247,9 +288,8 @@ export async function fetchOfficesList() {
 
 export async function createOffice(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'create-office', payload })
     });
     return await res.json();
@@ -260,9 +300,8 @@ export async function createOffice(payload) {
 
 export async function updateOffice(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update-office', payload })
     });
     return await res.json();
@@ -273,9 +312,8 @@ export async function updateOffice(payload) {
 
 export async function deleteOffice(id) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'delete-office', payload: { id } })
     });
     return await res.json();
@@ -287,9 +325,8 @@ export async function deleteOffice(id) {
 // --- CRUD USUÁRIOS ---
 export async function fetchUsersList() {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'list-users' })
     });
     return await res.json();
@@ -300,9 +337,8 @@ export async function fetchUsersList() {
 
 export async function createUser(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'create-user', payload })
     });
     return await res.json();
@@ -313,9 +349,8 @@ export async function createUser(payload) {
 
 export async function updateUser(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update-user', payload })
     });
     return await res.json();
@@ -327,9 +362,8 @@ export async function updateUser(payload) {
 // --- FLUXO DE FILAS E ATENDIMENTO ---
 export async function registerPatientCall(payload) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'register-patient-call', payload })
     });
     return await res.json();
@@ -340,7 +374,7 @@ export async function registerPatientCall(payload) {
 
 export async function fetchDoctorQueue(doctorId) {
   try {
-    const res = await fetch(`/api/medical?view=doctor-queue&doctorId=${doctorId}`);
+    const res = await fetchWithAuth(`/api/medical?view=doctor-queue&doctorId=${doctorId}`);
     if (res.ok) return await res.json();
     return { success: false, queue: [] };
   } catch (e) {
@@ -350,9 +384,8 @@ export async function fetchDoctorQueue(doctorId) {
 
 export async function callPatient(callId, doctorId) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'call-patient', payload: { callId, doctorId } })
     });
     return await res.json();
@@ -363,9 +396,8 @@ export async function callPatient(callId, doctorId) {
 
 export async function repeatPatientCall(callId) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'repeat-call', payload: { callId } })
     });
     return await res.json();
@@ -376,9 +408,8 @@ export async function repeatPatientCall(callId) {
 
 export async function updatePatientStatus(callId, status) {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'update-status', payload: { callId, status } })
     });
     return await res.json();
@@ -389,9 +420,8 @@ export async function updatePatientStatus(callId, status) {
 
 export async function resetAllQueues() {
   try {
-    const res = await fetch('/api/medical', {
+    const res = await fetchWithAuth('/api/medical', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'reset-all' })
     });
     return await res.json();
@@ -406,6 +436,22 @@ export async function loginUser(username, password) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'login', payload: { username, password } })
+    });
+    const data = await res.json();
+    if (data?.success && data.token) {
+      setAuthToken(data.token);
+    }
+    return data;
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+export async function verifySession() {
+  try {
+    const res = await fetchWithAuth('/api/medical', {
+      method: 'POST',
+      body: JSON.stringify({ action: 'verify-session' })
     });
     return await res.json();
   } catch (e) {

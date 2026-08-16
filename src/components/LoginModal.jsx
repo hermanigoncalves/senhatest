@@ -28,14 +28,23 @@ export default function LoginModal({ onLoginSuccess }) {
     }
   };
 
-  const handleQuickLogin = (quickUser, quickPass) => {
+  const handleQuickLogin = async (quickUser, quickPass) => {
     setUsername(quickUser);
     setPassword(quickPass);
-    loginUser(quickUser, quickPass).then(res => {
+    setLoading(true);
+    setErrorMsg('');
+    try {
+      const res = await loginUser(quickUser, quickPass);
+      setLoading(false);
       if (res?.success && res.user) {
         onLoginSuccess(res.user);
+      } else {
+        setErrorMsg(res?.message || 'Falha ao autenticar com este perfil.');
       }
-    });
+    } catch {
+      setLoading(false);
+      setErrorMsg('Erro de conexão ao autenticar.');
+    }
   };
 
   return (

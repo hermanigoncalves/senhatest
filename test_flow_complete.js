@@ -1,7 +1,10 @@
-import handler from './api/medical.js';
+import handler, { generateAuthToken } from './api/medical.js';
 
-function createMockReqRes(method, body = null, query = {}) {
-  const req = { method, body, query, headers: {} };
+const recepToken = generateAuthToken({ id: 2, name: 'Recepção CMIP', username: 'recepcao', role: 'receptionist' });
+
+function createMockReqRes(method, body = null, query = {}, token = recepToken) {
+  const headers = token ? { authorization: `Bearer ${token}` } : {};
+  const req = { method, body, query, headers };
   let statusCode = 200;
   let responseData = null;
 

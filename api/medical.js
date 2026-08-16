@@ -1,4 +1,45 @@
 import { supabase, supabaseAdmin } from './_supabase.js';
+import crypto from 'crypto';
+
+const AUTH_SECRET = process.env.AUTH_SECRET || 'cmip_secret_key_prod_2026_secure_jwt';
+
+export function generateAuthToken(user) {
+  const payload = {
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+    doctorId: user.doctorId || user.doctor_id || null,
+    name: user.name,
+    exp: Date.now() + (24 * 60 * 60 * 1000) // Válido por 24h
+  };
+  const payloadB64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = crypto.createHmac('sha256', AUTH_SECRET).update(payloadB64).digest('base64url');
+  return `${payloadB64}.${signature}`;
+}
+
+export function verifyAuthToken(token) {
+  if (!token) return null;
+  const rawToken = String(token).trim().replace(/^Bearer\s+/i, '');
+  const parts = rawToken.split('.');
+  if (parts.length !== 2) return null;
+
+  const [payloadB64, signature] = parts;
+  const expectedSignature = crypto.createHmac('sha256', AUTH_SECRET).update(payloadB64).digest('base64url');
+  if (signature !== expectedSignature) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'));
+    if (payload.exp && Date.now() > payload.exp) return null; // Expirado
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function extractAuthUser(req) {
+  const authHeader = req.headers?.authorization || req.headers?.Authorization || req.body?.authToken || req.query?.token;
+  return verifyAuthToken(authHeader);
+}
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -6,7 +47,7 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization, authorization'
   );
 
   if (req.method === 'OPTIONS') {
@@ -261,34 +302,50 @@ export default async function handler(req, res) {
           .single();
 
         if (user && !error) {
+          const userData = {
+            id: user.id,
+            name: user.name,
+            username: user.username,
+            role: user.role,
+            doctorId: user.doctor_id,
+            doctor_id: user.doctor_id,
+            doctor: user.doctor
+          };
+          const token = generateAuthToken(userData);
           return res.status(200).json({
             success: true,
-            user: {
-              id: user.id,
-              name: user.name,
-              username: user.username,
-              role: user.role,
-              doctorId: user.doctor_id,
-              doctor: user.doctor
-            }
+            user: userData,
+            token: token
           });
         }
 
         const defaults = {
-          admin: { id: 1, name: 'Administrador Geral', role: 'admin' },
-          recepcao: { id: 2, name: 'Recepção CMIP', role: 'receptionist' },
-          dr_carlos: { id: 4, name: 'Dr. Carlos Eduardo', role: 'doctor', doctorId: 4, doctor: { id: 4, name: 'Dr. Carlos Eduardo', office_name: 'Consultório 01 - Clínica Geral' } },
-          dra_helena: { id: 5, name: 'Dra. Helena Martins', role: 'doctor', doctorId: 5, doctor: { id: 5, name: 'Dra. Helena Martins', office_name: 'Consultório 02 - Cardiologia' } }
+          admin: { id: 1, name: 'Administrador Geral', username: 'admin', role: 'admin' },
+          recepcao: { id: 2, name: 'Recepção CMIP', username: 'recepcao', role: 'receptionist' },
+          dr_carlos: { id: 4, name: 'Dr. Carlos Eduardo', username: 'dr_carlos', role: 'doctor', doctorId: 4, doctor_id: 4, doctor: { id: 4, name: 'Dr. Carlos Eduardo', office_name: 'Consultório 01 - Clínica Geral' } },
+          dra_helena: { id: 5, name: 'Dra. Helena Martins', username: 'dra_helena', role: 'doctor', doctorId: 5, doctor_id: 5, doctor: { id: 5, name: 'Dra. Helena Martins', office_name: 'Consultório 02 - Cardiologia' } }
         };
 
         if (defaults[username] && (password === 'admin123' || password === 'recepcao123' || password === 'medico123' || password === '123456')) {
+          const userData = defaults[username];
+          const token = generateAuthToken(userData);
           return res.status(200).json({
             success: true,
-            user: defaults[username]
+            user: userData,
+            token: token
           });
         }
 
         return res.status(401).json({ success: false, message: 'Usuário ou senha incorretos.' });
+      }
+
+      // A.1) VERIFICAÇÃO DE SESSÃO VIVA
+      if (action === 'verify-session') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) {
+          return res.status(401).json({ success: false, message: 'Sessão inválida ou expirada.' });
+        }
+        return res.status(200).json({ success: true, user: authUser });
       }
 
       // B) CRUD DE MÉDICOS
@@ -302,6 +359,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create-doctor') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { name, crm, crm_uf = 'SP', specialty = 'Clínica Geral', phone, email, office_id, createUser, username, password } = payload || {};
         
         if (!name || !name.trim()) {
@@ -351,6 +412,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'update-doctor') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { id, name, crm, crm_uf, specialty, phone, email, office_id, active } = payload || {};
         if (!id) return res.status(400).json({ success: false, message: 'ID do médico é obrigatório.' });
 
@@ -384,6 +449,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'delete-doctor') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { id, hardDelete } = payload || {};
         if (!id) return res.status(400).json({ success: false, message: 'ID obrigatório.' });
 
@@ -407,6 +476,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create-office') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { name, code, location, target_tv = '1' } = payload || {};
         if (!name || !name.trim()) return res.status(400).json({ success: false, message: 'Nome da sala é obrigatório.' });
 
@@ -428,6 +501,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'update-office') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { id, name, code, location, target_tv, active } = payload || {};
         if (!id) return res.status(400).json({ success: false, message: 'ID obrigatório.' });
 
@@ -449,6 +526,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'delete-office') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { id } = payload || {};
         await supabaseAdmin.from('offices').update({ active: false, updated_at: new Date().toISOString() }).eq('id', id);
         return res.status(200).json({ success: true, message: 'Consultório desativado.' });
@@ -456,6 +537,10 @@ export default async function handler(req, res) {
 
       // D) CRUD DE USUÁRIOS
       if (action === 'list-users') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { data: users, error } = await supabaseAdmin
           .from('users')
           .select('id, name, username, role, doctor_id, active, created_at')
@@ -465,6 +550,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'create-user') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { name, username, password, role = 'receptionist', doctor_id } = payload || {};
         if (!username || !password) return res.status(400).json({ success: false, message: 'Usuário e senha são obrigatórios.' });
 
@@ -485,6 +574,10 @@ export default async function handler(req, res) {
       }
 
       if (action === 'update-user') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         const { id, name, password, role, doctor_id, active } = payload || {};
         if (!id) return res.status(400).json({ success: false, message: 'ID do usuário obrigatório.' });
 
@@ -502,6 +595,12 @@ export default async function handler(req, res) {
 
       // E) ENCAMINHAMENTO DE PACIENTE PELA RECEPÇÃO
       if (action === 'register-patient' || action === 'register-patient-call') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin' && authUser.role !== 'receptionist') {
+          return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita à Recepção e Administradores.' });
+        }
+
         const { patientName, document, phone, doctorId, doctorName, officeName, targetTv, type = 'Normal', createdBy } = payload || {};
 
         if (!patientName || !patientName.trim()) {
@@ -563,7 +662,19 @@ export default async function handler(req, res) {
 
       // F) MÉDICO CHAMA PACIENTE NA TV
       if (action === 'call-patient') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin' && authUser.role !== 'doctor') {
+          return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Médicos e Administradores.' });
+        }
+
         const { callId, doctorId } = payload || {};
+
+        // Se for médico, valida se não está chamando paciente de outro médico
+        if (authUser.role === 'doctor' && authUser.doctorId && doctorId && Number(doctorId) !== Number(authUser.doctorId)) {
+          return res.status(403).json({ success: false, message: 'Acesso negado. Você só pode chamar pacientes da sua própria fila.' });
+        }
+
         const nowIso = new Date().toISOString();
 
         const { data: updated, error } = await supabaseAdmin
@@ -596,6 +707,12 @@ export default async function handler(req, res) {
 
       // G) MÉDICO RECHAMA PACIENTE NA TV
       if (action === 'repeat-patient' || action === 'repeat-call') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin' && authUser.role !== 'doctor') {
+          return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Médicos e Administradores.' });
+        }
+
         const { callId } = payload || {};
         const nowIso = new Date().toISOString();
 
@@ -629,6 +746,12 @@ export default async function handler(req, res) {
 
       // H) ATUALIZAR STATUS DO ATENDIMENTO
       if (action === 'update-status') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin' && authUser.role !== 'doctor') {
+          return res.status(403).json({ success: false, message: 'Acesso negado.' });
+        }
+
         const { callId, status } = payload || {};
         const updateData = { status };
         if (status === 'completed') {
@@ -651,6 +774,10 @@ export default async function handler(req, res) {
 
       // I) ADMIN: ZERAR TODAS AS FILAS
       if (action === 'reset-all') {
+        const authUser = extractAuthUser(req);
+        if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
+        if (authUser.role !== 'admin') return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita a Administradores.' });
+
         await supabaseAdmin.from('patient_calls').delete().gt('id', 0);
         await supabaseAdmin.from('tickets').delete().gt('id', 0);
 

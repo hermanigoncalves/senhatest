@@ -5,7 +5,13 @@ import {
   Send, Tv, LogOut, UserCheck, RefreshCw, Monitor, DoorOpen, ExternalLink
 } from 'lucide-react';
 
-export default function ReceptionPanel({ user, onLogout, onNavigateTv }) {
+export default function ReceptionPanel({ 
+  user, 
+  onLogout, 
+  onNavigateTv, 
+  onNavigateAttendant, 
+  onNavigateAdmin 
+}) {
   const [patientName, setPatientName] = useState('');
   const [document, setDocument] = useState('');
   const [phone, setPhone] = useState('');

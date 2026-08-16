@@ -1,0 +1,47 @@
+{
+  "project": "CMIP - Sistema de Autenticação Segura & RBAC",
+  "version": "2.0.0",
+  "pipeline": "Spec-Driven Development (Addy Osmani) & Google Mantis",
+  "tasks": [
+    {
+      "id": "TASK-01",
+      "name": "Backend Auth Tokens & Middleware de Autorização RBAC",
+      "file": "api/medical.js",
+      "description": "Implementar geração de token assinado no login, validação de permissão estrita por endpoint (Admin, Receptionist, Doctor) e action verify-session.",
+      "estimated_minutes": 10,
+      "verification": "node test_security_enforcement.js"
+    },
+    {
+      "id": "TASK-02",
+      "name": "Cliente de Comunicação com Injeção de Bearer Token",
+      "file": "src/utils/socket.js",
+      "description": "Adicionar gerenciamento de token de sessão e wrapper fetchWithAuth para injetar Authorization header em todas as requisições protegidas.",
+      "estimated_minutes": 5,
+      "verification": "npm run build"
+    },
+    {
+      "id": "TASK-03",
+      "name": "Route Guard no Frontend & Tela de Bloqueio 403",
+      "file": "src/App.jsx",
+      "description": "Implementar guarda de rotas de raiz: sem sessão válida exibe Login. Se usuário tentar forçar rota indevida por URL, exibe tela de Bloqueio 403 com redirecionamento seguro.",
+      "estimated_minutes": 8,
+      "verification": "node test_security_enforcement.js"
+    },
+    {
+      "id": "TASK-04",
+      "name": "Tela de Login com Feedback de Erro & Validação de Sessão Viva",
+      "file": "src/components/LoginModal.jsx",
+      "description": "Ajustar tela de login para salvar o token seguro no client e validar a sessão contra o banco no carregamento.",
+      "estimated_minutes": 5,
+      "verification": "npm run build"
+    },
+    {
+      "id": "TASK-05",
+      "name": "Suíte de Testes de Penetração & Prova de Segurança (AAA)",
+      "file": "test_security_enforcement.js",
+      "description": "Criar e rodar testes de rejeição para bypass de URL, token ausente, token adulterado e privilégios cruzados.",
+      "estimated_minutes": 5,
+      "verification": "node test_security_enforcement.js && npm run build"
+    }
+  ]
+}
