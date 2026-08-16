@@ -109,7 +109,6 @@ export default function AdminPanel({ user, onLogout, onNavigateTv }) {
       specialty: 'Clínica Geral',
       phone: '',
       email: '',
-      office_id: offices.length > 0 ? String(offices[0].id) : '',
       createUser: true,
       username: '',
       password: ''
@@ -126,7 +125,6 @@ export default function AdminPanel({ user, onLogout, onNavigateTv }) {
       specialty: doc.specialty || 'Clínica Geral',
       phone: doc.phone || '',
       email: doc.email || '',
-      office_id: doc.office_id ? String(doc.office_id) : '',
       createUser: false,
       username: '',
       password: ''
@@ -561,8 +559,8 @@ export default function AdminPanel({ user, onLogout, onNavigateTv }) {
 
                     <div className="pt-2 border-t border-cmip-600/20 space-y-1 text-xs text-cmip-100/70">
                       <div>CRM: <strong className="font-mono text-cyan-300">{doc.crm} - {doc.crm_uf || 'SP'}</strong></div>
-                      <div>Consultório: <strong className="text-amber-300">{doc.office_name || doc.office?.name || 'Não vinculado'}</strong></div>
-                      {doc.phone && <div>Telefone: <span className="font-mono">{doc.phone}</span></div>}
+                      {doc.phone && <div>Telefone: <span className="font-mono text-slate-200">{doc.phone}</span></div>}
+                      {doc.email && <div>E-mail: <span className="text-slate-300">{doc.email}</span></div>}
                     </div>
                   </div>
 
@@ -836,33 +834,15 @@ export default function AdminPanel({ user, onLogout, onNavigateTv }) {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1">Especialidade</label>
-                  <input
-                    type="text"
-                    placeholder="Ex: Cardiologia, Pediatria"
-                    value={doctorForm.specialty}
-                    onChange={(e) => setDoctorForm({ ...doctorForm, specialty: e.target.value })}
-                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-cmip-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1">Consultório Vinculado</label>
-                  <select
-                    value={doctorForm.office_id}
-                    onChange={(e) => setDoctorForm({ ...doctorForm, office_id: e.target.value })}
-                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-3 py-2.5 text-sm font-semibold focus:outline-none focus:border-cmip-400"
-                  >
-                    <option value="">Selecione um consultório</option>
-                    {offices.map(off => (
-                      <option key={off.id} value={off.id}>
-                        {off.name} ({off.target_tv === '1' ? 'TV 01' : off.target_tv === '2' ? 'TV 02' : 'Ambas TVs'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1">Especialidade Médica</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Cardiologia, Pediatria, Clínica Geral"
+                  value={doctorForm.specialty}
+                  onChange={(e) => setDoctorForm({ ...doctorForm, specialty: e.target.value })}
+                  className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:border-cmip-400"
+                />
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
