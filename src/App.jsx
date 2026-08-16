@@ -2,15 +2,46 @@ import React, { useState, useEffect } from 'react';
 import AttendantPanel from './components/AttendantPanel';
 import TvPanel from './components/TvPanel';
 import TotemTablet from './components/TotemTablet';
+import DoctorPanel from './components/DoctorPanel';
+import ReceptionPanel from './components/ReceptionPanel';
+import AdminPanel from './components/AdminPanel';
+import LoginModal from './components/LoginModal';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const saved = localStorage.getItem('cmip_user');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  const handleLoginSuccess = (user) => {
+    setCurrentUser(user);
+    try {
+      localStorage.setItem('cmip_user', JSON.stringify(user));
+    } catch {}
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    try {
+      localStorage.removeItem('cmip_user');
+    } catch {}
+  };
+
+  const navigateTo = (newPath) => {
+    window.history.pushState({}, '', newPath);
+    setCurrentPath(newPath);
+  };
 
   const path = currentPath.toLowerCase();
   const search = typeof window !== 'undefined' ? window.location.search.toLowerCase() : '';
@@ -50,5 +81,89 @@ export default function App() {
     return <TotemTablet />;
   }
 
-  return <AttendantPanel />;
+  // 6. Rota Explícita de Login
+  if (path === '/login') {
+    return <LoginModal onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // 7. Rotas com Usuário Autenticado
+  if (currentUser) {
+    if (currentUser.role === 'doctor') {
+      return (
+        <DoctorPanel 
+          user={currentUser} 
+          onLogout={handleLogout} 
+          onNavigateTv={() => navigateTo('/tv1')} 
+        />
+      );
+    }
+
+    if (currentUser.role === 'admin') {
+      return (
+        <AdminPanel 
+          user={currentUser} 
+          onLogout={handleLogout} 
+          onNavigateTv={() => navigateTo('/tv')} 
+        />
+      );
+    }
+
+    if (currentUser.role === 'receptionist') {
+      return (
+        <ReceptionPanel 
+          user={currentUser} 
+          onLogout={handleLogout} 
+          onNavigateTv={() => navigateTo('/tv-recepcao')} 
+        />
+      );
+    }
+  }
+
+  // 8. Rotas Diretas por URL (se não estiver logado, exibe tela de login)
+  if (path === '/medico' || path === '/doctor') {
+    return currentUser?.role === 'doctor' ? (
+      <DoctorPanel 
+        user={currentUser} 
+        onLogout={handleLogout} 
+        onNavigateTv={() => navigateTo('/tv1')} 
+      />
+    ) : (
+      <LoginModal onLoginSuccess={handleLoginSuccess} />
+    );
+  }
+
+  if (path === '/recepcao' || path === '/cadastro') {
+    return currentUser?.role === 'receptionist' ? (
+      <ReceptionPanel 
+        user={currentUser} 
+        onLogout={handleLogout} 
+        onNavigateTv={() => navigateTo('/tv-recepcao')} 
+      />
+    ) : (
+      <LoginModal onLoginSuccess={handleLoginSuccess} />
+    );
+  }
+
+  if (path === '/admin') {
+    return currentUser?.role === 'admin' ? (
+      <AdminPanel 
+        user={currentUser} 
+        onLogout={handleLogout} 
+        onNavigateTv={() => navigateTo('/tv')} 
+      />
+    ) : (
+      <LoginModal onLoginSuccess={handleLoginSuccess} />
+    );
+  }
+
+  // 9. Padrão: Painel Tradicional do Atendente de Guichê
+  return (
+    <AttendantPanel 
+      onNavigateLogin={() => navigateTo('/login')} 
+      onNavigateReception={() => navigateTo('/recepcao')}
+      onNavigateDoctor={() => navigateTo('/medico')}
+      onNavigateAdmin={() => navigateTo('/admin')}
+    />
+  );
 }
+

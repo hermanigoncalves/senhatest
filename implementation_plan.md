@@ -1,100 +1,98 @@
-# Topologia de 3 TVs CMIP: TV Recepção (Guichês) + TV Consultórios 01 + TV Consultórios 02
+# Plano de Implementação — Correção de Roteamento, Backend Local & Refinamento CMIP
 
-## 📋 Objetivo Declarativo
-Implementar a separação estrita e dedicada dos 3 canais de TV independentes do Centro Médico Integrado Piratininga (CMIP):
-1. **TV da Recepção** (`/tv-recepcao` ou `tv=recepcao`): Exibe e anuncia com áudio **somente** as senhas da recepção/guichês (Totem / Atendimento).
-2. **TV Consultórios 01** (`/tv1` ou `tvId=1`): Exibe e anuncia com áudio **somente** as chamadas dos consultórios médicos apontados para a TV 01.
-3. **TV Consultórios 02** (`/tv2` ou `tvId=2`): Exibe e anuncia com áudio **somente** as chamadas dos consultórios médicos apontados para a TV 02.
+Este plano detalha as correções necessárias para integrar os módulos desenvolvidos (Médico, Recepção, Admin, Login), compatibilizar o servidor local Express (`server.js`) com as APIs serverless e garantir conformidade com os padrões de design e estabilidade dos workflows Mantis e Hallmark.
 
 ---
 
-## 🎯 Escopo Estrito
+## 🎯 Objetivo Declarativo
 
-### In-Scope (Fazer Agora - 5 Entregáveis Atômicos)
-1. **Isolamento de Canais no Backend (`api/medical.js` & `api/ticket.js`)**:
-   - Suporte aos canais `channel = 'recepcao'`, `channel = '1'`, `channel = '2'`, e `channel = 'all'`.
-   - Se `channel === 'recepcao'`, retorna apenas dados da tabela `tickets` (senhas dos guichês).
-   - Se `channel === '1'` ou `'2'`, retorna apenas dados da tabela `patient_calls` onde `target_tv IN (tvId, 'all')`.
-2. **Componente de TV Unificado & Inteligente (`src/components/TvPanel.jsx`)**:
-   - Identificação visual imediata do canal da TV no cabeçalho (*TV Recepção - Guichês*, *TV 01 - Consultórios Térreo*, *TV 02 - Consultórios 1º Andar*).
-   - Filtragem estrita de áudio e tela: chamadas de guichê tocam apenas na TV da recepção; chamadas médicas tocam apenas na TV médica correspondente.
-3. **Roteamento de URLs no Frontend (`src/App.jsx`)**:
-   - `/tv-recepcao` ou `?tv=recepcao` -> TV da Recepção.
-   - `/tv1` ou `/tv-medica-1` ou `?tvId=1` -> TV Consultórios 01.
-   - `/tv2` ou `/tv-medica-2` ou `?tvId=2` -> TV Consultórios 02.
-   - `/tv` -> TV Geral (com seletor).
-4. **Central de Acesso às TVs no Painel Admin (`src/components/AdminPanel.jsx`) & Recepção (`src/components/ReceptionPanel.jsx`)**:
-   - Botões com ícones dedicados para abrir cada uma das 3 TVs em novas abas ou janelas.
-5. **Suíte de Testes Automatizados E2E ("Tests as Proof")**:
-   - Teste de prova comprovando que uma senha emitida na recepção não toca na TV médica e que uma chamada médica da TV 01 não toca na TV 02 nem na Recepção.
-
-### Out-of-Scope (Depois / Fora de Escopo)
-- Hardware de Smart TV físico (os links serão executados nos navegadores de cada TV).
-- Integração com sistemas de prontuário eletrônico externo (PEP).
+Integrar o roteamento de telas no frontend ([`src/App.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/App.jsx)), habilitar os endpoints de atendimento médico e tickets no servidor local ([`server.js`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/server.js)), adicionar botão de alternância de painel no [`AttendantPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/AttendantPanel.jsx) e validar todo o ciclo operacional com testes automatizados.
 
 ---
 
-## 📐 Contratos de Dados & Interfaces
+## 📋 Escopo Estrito (In-Scope vs Out-of-Scope)
 
-### Canais de TV Válidos
-```typescript
-type TvChannel = 'recepcao' | '1' | '2' | 'all';
+### ✅ In-Scope (Fazer Agora — 5 Entregáveis Atômicos)
+1. **[ROUT-01] Roteamento Completo & Gestão de Sessão ([`src/App.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/App.jsx))**:
+   - Conectar [`DoctorPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/DoctorPanel.jsx), [`ReceptionPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/ReceptionPanel.jsx), [`AdminPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/AdminPanel.jsx) e [`LoginModal.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/LoginModal.jsx).
+   - Suporte a rotas por URL (`/medico`, `/recepcao`, `/admin`, `/login`, `/tablet`, `/tv-recepcao`, `/tv1`, `/tv2`, `/tv`).
+   - Persistência de sessão do usuário logado via `localStorage` com controle de logout.
+2. **[NAV-01] Atalho de Acesso aos Painéis no Painel do Atendente ([`src/components/AttendantPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/AttendantPanel.jsx))**:
+   - Adicionar botão "Acessar Módulos / Login" no cabeçalho para permitir transição rápida entre a fila de senhas, recepção, consultório e admin.
+3. **[SRV-01] Montagem de APIs no Servidor Express Local ([`server.js`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/server.js))**:
+   - Montar `medicalHandler` e `ticketHandler` nas rotas `/api/medical` e `/api/ticket` no Express.
+   - Garantir paridade total entre desenvolvimento local (`npm run dev` + `npm run server`) e deploy Vercel.
+4. **[UI-01] Refinamento de Estados Hallmark nos Painéis**:
+   - Garantir feedback de carregamento suave (Skeletons/Spinners) e tratamento de erros de rede nos modais e listas.
+5. **[TEST-01] Suíte de Testes de Roteamento e Endpoints**:
+   - Criar e executar teste automatizado comprovando o funcionamento dos endpoints no servidor local e o roteamento de perfil.
 
-interface TvResponseDTO {
-  success: boolean;
-  channel: TvChannel;
-  channelTitle: string;
-  currentTicket: {
-    id: number;
-    callId: number;
-    patientName?: string;
-    number?: string;
-    officeName?: string;
-    desk?: string;
-    doctorName?: string;
-    targetTv: TvChannel;
-    type: 'Normal' | 'Preferencial';
-    timestamp: string;
-    isRepeat: boolean;
-  } | null;
-  history: Array<{
-    id: number;
-    callId: number;
-    patientName?: string;
-    number?: string;
-    officeName?: string;
-    desk?: string;
-    doctorName?: string;
-    targetTv: TvChannel;
-    type: 'Normal' | 'Preferencial';
-    timestamp: string;
-  }>;
-}
-```
+### 🚫 Out-of-Scope (Depois / Fora de Escopo)
+- Alterações no esquema DDL do Supabase (o banco já está estruturado e validado).
+- Modificação na rotina de áudio e sintetizador de voz (já homologados e estáveis).
+- Alteração nos drivers ESC/POS da impressora KA-1445.
 
 ---
 
 ## 🛡️ Modelagem de Ameaças Mantis & Mitigações
 
-| Risco / Ameaça | Superfície de Ataque | Blast Radius | Mitigação Arquitetural |
-| :--- | :--- | :--- | :--- |
-| **Vazamento Cruzado de Áudio** | Chamada médica tocar na TV da Recepção | Alto (confusão de pacientes) | Dupla barreira: backend filtra a query e o frontend valida `belongsToThisTv(call)` antes de enfileirar áudio |
-| **Sobrecarga de Polling** | 3 TVs consultando a cada 2s | Baixo | Cache de chave única em memória (`announcedKeysRef`) e queries indexadas por `target_tv` |
-| **Queda de Conexão WebSocket** | Smart TV perde socket | Médio | Polling HTTP resiliente de 2s a 3s com reconexão automática |
+| Ameaça / Risco | Superfície | Blast Radius | Mitigação Arquitetural |
+|---|---|---|---|
+| **Acesso Não Autorizado a Painel Médico/Admin** | Rota `/admin` ou `/medico` digitada na URL | Alto (exposição de dados de pacientes) | Redirecionamento automático para o `LoginModal` se `currentUser` for nulo ou perfil incompatível. |
+| **Incompatibilidade de Portas no Proxy do Vite** | Chamadas `/api/*` em ambiente dev local | Médio (404 em todas as ações) | Handler centralizado montado no Express do `server.js` escutando na porta 3001. |
+| **Perda de Estado ao Recarregar a Página (F5)** | Usuário logado médico/recepção | Baixo (inconveniência de re-login) | Inicialização síncrona do estado do usuário a partir de `localStorage.getItem('cmip_user')`. |
+
+---
+
+## 📐 Contratos de Interfaces & Rotas
+
+### Matriz de Mapeamento de Rotas (`src/App.jsx`)
+
+```typescript
+// Mapeamento Canônico de URLs:
+// - '/tv-recepcao' | '?tv=recepcao' ➔ <TvPanel initialTvId="recepcao" />
+// - '/tv1' | '?tv=1'                ➔ <TvPanel initialTvId="1" />
+// - '/tv2' | '?tv=2'                ➔ <TvPanel initialTvId="2" />
+// - '/tv' | '?tv=all'               ➔ <TvPanel initialTvId="all" />
+// - '/tablet' | '/totem'            ➔ <TotemTablet />
+// - '/login'                        ➔ <LoginModal />
+// - '/medico'                       ➔ <DoctorPanel /> (ou Login se deslogado)
+// - '/recepcao'                     ➔ <ReceptionPanel /> (ou Login se deslogado)
+// - '/admin'                        ➔ <AdminPanel /> (ou Login se deslogado)
+// - '/' (Padrão)                    ➔ <AttendantPanel /> (com botão para Login)
+```
+
+---
+
+## 🔨 Decomposição Atômica de Tarefas
+
+```markdown
+1. [MODIFY] src/App.jsx (~5 min) ➔ Adicionar importações de DoctorPanel, ReceptionPanel, AdminPanel, LoginModal e roteador com localStorage.
+2. [MODIFY] server.js (~3 min) ➔ Importar api/medical.js e api/ticket.js e registrar app.all('/api/medical') e app.all('/api/ticket').
+3. [MODIFY] src/components/AttendantPanel.jsx (~3 min) ➔ Adicionar botão no cabeçalho para navegar para o Login/Módulos Médicos.
+4. [NEW] test_routes_integration.js (~4 min) ➔ Teste automatizado validando os endpoints do servidor local.
+5. [VERIFY] Execução das suítes de teste (~2 min) ➔ Executar node test_routes_integration.js e test_3tvs_isolation.js.
+```
 
 ---
 
 ## 🧪 Plano de Verificação (Tests as Proof)
 
-### Testes Automatizados
-- `test_3tvs_isolation.js`:
-  1. Emite senha numérica para Guichê 01 -> Valida presença na TV Recepção e AUSÊNCIA nas TVs Médicas 01 e 02.
-  2. Médico da Sala 1 chama paciente -> Valida presença na TV Médica 01 e AUSÊNCIA na TV Recepção e TV Médica 02.
-  3. Médico da Sala 2 chama paciente -> Valida presença na TV Médica 02 e AUSÊNCIA na TV Recepção e TV Médica 01.
+### 1. Testes Automatizados
+- Executar `node test_routes_integration.js` para comprovar que `/api/medical` e `/api/ticket` respondem com sucesso (200 OK) no backend.
+- Re-executar `node test_3tvs_isolation.js` para assegurar que nenhuma regressão afetou o isolamento das 3 TVs.
 
-### Verificação Manual
-- Abrir simultaneamente 3 abas no navegador:
-  - Aba 1: `http://localhost:5173/tv-recepcao`
-  - Aba 2: `http://localhost:5173/tv1`
-  - Aba 3: `http://localhost:5173/tv2`
-- Testar chamadas no painel da Recepção, Atendente e Médico e verificar o isolamento sonoro e visual.
+### 2. Verificação Visual e Manual
+- Testar acesso via navegador nas rotas:
+  - `http://localhost:5173/` ➔ Painel de Atendimento com atalhos.
+  - `http://localhost:5173/login` ➔ Modal de Login com atalhos de perfil.
+  - `http://localhost:5173/recepcao` ➔ Painel de Cadastro e Encaminhamento de Pacientes.
+  - `http://localhost:5173/medico` ➔ Painel de Atendimento do Médico e Chamada de Fila.
+  - `http://localhost:5173/admin` ➔ Painel Administrativo Geral.
+  - `http://localhost:5173/tv1`, `http://localhost:5173/tv2`, `http://localhost:5173/tv-recepcao`.
+
+---
+
+## 🛑 Portão de Confirmação
+
+Após a sua aprovação deste plano, iniciaremos a aplicação imediata das modificações em [`src/App.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/App.jsx), [`server.js`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/server.js) e [`src/components/AttendantPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/AttendantPanel.jsx).

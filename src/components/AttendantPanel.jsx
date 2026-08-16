@@ -5,10 +5,15 @@ import {
 } from '../utils/socket';
 import { 
   Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, 
-  Check, Tv, Tablet, Star, Bell, Clock, AlertCircle, ArrowRight
+  Check, Tv, Tablet, Star, Bell, Clock, AlertCircle, ArrowRight, LogIn, Stethoscope
 } from 'lucide-react';
 
-export default function AttendantPanel() {
+export default function AttendantPanel({ 
+  onNavigateLogin, 
+  onNavigateReception, 
+  onNavigateDoctor, 
+  onNavigateAdmin 
+}) {
   const [queueState, setQueueState] = useState({
     counter: 0,
     currentTicket: null,
@@ -195,8 +200,8 @@ export default function AttendantPanel() {
             </div>
           </div>
 
-          {/* ATALHOS RÁPIDOS (TOTEM E TV) */}
-          <div className="flex items-center gap-3">
+          {/* ATALHOS RÁPIDOS (TOTEM, TV E LOGIN) */}
+          <div className="flex flex-wrap items-center gap-3">
             <a
               href="/tablet"
               target="_blank"
@@ -204,7 +209,7 @@ export default function AttendantPanel() {
               className="px-4 py-2.5 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-2 transition-transform active:scale-95"
             >
               <Tablet className="w-4 h-4" />
-              <span>Abrir Totem (Tablet)</span>
+              <span>Totem (Tablet)</span>
             </a>
 
             <a
@@ -214,8 +219,19 @@ export default function AttendantPanel() {
               className="px-4 py-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-400 font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-2 transition-colors shadow-md"
             >
               <Tv className="w-4 h-4" />
-              <span>Abrir TV</span>
+              <span>Painel de TV</span>
             </a>
+
+            {onNavigateLogin && (
+              <button
+                onClick={onNavigateLogin}
+                className="px-4 py-2.5 bg-cyan-950 hover:bg-cyan-900 text-cyan-300 font-bold text-xs rounded-xl border border-cyan-600/40 flex items-center gap-2 transition-colors shadow-md"
+                title="Acessar Módulos Médicos ou Login"
+              >
+                <Stethoscope className="w-4 h-4 text-cyan-400" />
+                <span>Módulos Médicos / Login</span>
+              </button>
+            )}
           </div>
         </header>
 

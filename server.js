@@ -5,6 +5,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import os from 'os';
 import { supabase } from './src/utils/supabaseClient.js';
+import medicalHandler from './api/medical.js';
+import ticketHandler from './api/ticket.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -101,6 +103,9 @@ function getLocalIpAddresses() {
 }
 
 app.use(express.json());
+
+app.all('/api/medical', (req, res) => medicalHandler(req, res));
+app.all('/api/ticket', (req, res) => ticketHandler(req, res));
 
 app.get('/api/info', (req, res) => {
   res.json({

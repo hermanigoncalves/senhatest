@@ -31,7 +31,7 @@ export default async function handler(req, res) {
 
       // A) Fila específica do médico
       if (view === 'doctor-queue' && doctorId) {
-        const { data: queue, error } = await supabase
+        const { data: queue, error } = await supabaseAdmin
           .from('patient_calls')
           .select('*')
           .eq('doctor_id', doctorId)
@@ -56,8 +56,8 @@ export default async function handler(req, res) {
 
       // B) Dados para Setup da Recepção e Admin
       if (view === 'setup') {
-        const { data: offices } = await supabase.from('offices').select('*').eq('active', true).order('name');
-        const { data: doctors } = await supabase.from('doctors').select('*').eq('active', true).order('name');
+        const { data: offices } = await supabaseAdmin.from('offices').select('*').eq('active', true).order('name');
+        const { data: doctors } = await supabaseAdmin.from('doctors').select('*').eq('active', true).order('name');
 
         return res.status(200).json({
           success: true,
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
       // C1) CANAL: TV DA RECEPÇÃO (Exclusivo para Senhas/Guichês)
       // --------------------------------------------------------
       if (activeChannel === 'recepcao') {
-        const { data: tickets } = await supabase
+        const { data: tickets } = await supabaseAdmin
           .from('tickets')
           .select('*')
           .neq('desk', 'Aguardando')
@@ -118,7 +118,7 @@ export default async function handler(req, res) {
       // C2) CANAIS MÉDICOS: TV 01 ou TV 02 (Consultórios Específicos)
       // --------------------------------------------------------
       if (activeChannel === '1' || activeChannel === '2') {
-        const { data: calls } = await supabase
+        const { data: calls } = await supabaseAdmin
           .from('patient_calls')
           .select('*')
           .in('target_tv', [activeChannel, 'all'])
@@ -168,13 +168,13 @@ export default async function handler(req, res) {
       // --------------------------------------------------------
       // C3) CANAL GERAL: Todas as Chamadas (Médicas + Senhas)
       // --------------------------------------------------------
-      const { data: calls } = await supabase
+      const { data: calls } = await supabaseAdmin
         .from('patient_calls')
         .select('*')
         .order('id', { ascending: false })
         .limit(15);
 
-      const { data: tickets } = await supabase
+      const { data: tickets } = await supabaseAdmin
         .from('tickets')
         .select('*')
         .neq('desk', 'Aguardando')
