@@ -223,7 +223,7 @@ export default function TvPanel({ initialTvId }) {
       }
     }, 2000);
 
-    const unlockEvents = ['click', 'touchstart', 'keydown', 'keyup', 'pointerdown'];
+    const unlockEvents = ['click', 'touchstart', 'keydown', 'keyup', 'pointerdown', 'mousemove', 'focus'];
     const globalUnlock = () => handleUnlockAudio();
     unlockEvents.forEach(evt => window.addEventListener(evt, globalUnlock, { capture: true, passive: true }));
 

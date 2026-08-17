@@ -4,8 +4,10 @@
 let audioCtx = null;
 let ptVoice = null;
 let chimeAudioElement = null;
+let voicesLoaded = false;
+let voicesPromise = null;
 
-// Mantém o motor de síntese acordado
+// Mantém o motor de síntese acordado periodicamente
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   setInterval(() => {
     try {
@@ -13,7 +15,7 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         window.speechSynthesis.resume();
       }
     } catch (e) {}
-  }, 2500);
+  }, 2000);
 }
 
 function generateChimeDataUri() {
@@ -28,11 +30,11 @@ function generateChimeDataUri() {
     let vol = 0;
 
     if (t < 0.45) {
-      freq = 783.99; // "Ding"
+      freq = 783.99; // "Ding" (G5)
       vol = Math.max(0, 1 - t / 0.45) * 0.85;
     } else if (t >= 0.35 && t < 1.2) {
       const t2 = t - 0.35;
-      freq = 659.25; // "Dong"
+      freq = 659.25; // "Dong" (E5)
       vol = Math.max(0, 1 - t2 / 0.85) * 0.95;
     }
 
@@ -72,33 +74,94 @@ function generateChimeDataUri() {
 export const chimeDataUri = generateChimeDataUri();
 
 /**
- * Carrega e seleciona a melhor voz disponível em PT-BR
+ * Inicializa e carrega assincronamente as vozes do navegador
  */
-export function getPtVoice() {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return null;
-  const voices = window.speechSynthesis.getVoices();
-  if (!voices || voices.length === 0) return null;
-
-  const ptVoices = voices.filter(v => v.lang && (v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang.toLowerCase().includes('pt')));
-
-  if (ptVoices.length > 0) {
-    const preferredVoice = ptVoices.find(v => 
-      /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português|microsoft.*maria/i.test(v.name)
-    );
-    ptVoice = preferredVoice || ptVoices[0];
-  } else {
-    ptVoice = voices[0];
+export function initPtVoices() {
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+    return Promise.resolve(null);
   }
-  return ptVoice;
+
+  if (voicesLoaded && ptVoice) {
+    return Promise.resolve(ptVoice);
+  }
+
+  if (voicesPromise) {
+    return voicesPromise;
+  }
+
+  voicesPromise = new Promise((resolve) => {
+    const pickVoice = () => {
+      try {
+        const voices = window.speechSynthesis.getVoices() || [];
+        if (voices.length > 0) {
+          const ptVoices = voices.filter(v => 
+            v.lang && (
+              v.lang.toLowerCase().includes('pt-br') || 
+              v.lang.toLowerCase().includes('pt_br') || 
+              v.lang.toLowerCase().startsWith('pt')
+            )
+          );
+
+          if (ptVoices.length > 0) {
+            // Prioriza vozes femininas e naturais de alta qualidade
+            const preferredVoice = ptVoices.find(v => 
+              /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português|microsoft.*maria/i.test(v.name)
+            );
+            ptVoice = preferredVoice || ptVoices[0];
+          } else {
+            ptVoice = voices[0] || null;
+          }
+
+          voicesLoaded = true;
+          return ptVoice;
+        }
+      } catch (e) {}
+      return null;
+    };
+
+    const immediate = pickVoice();
+    if (immediate) {
+      return resolve(immediate);
+    }
+
+    if (window.speechSynthesis.onvoiceschanged !== undefined) {
+      window.speechSynthesis.onvoiceschanged = () => {
+        const found = pickVoice();
+        if (found) resolve(found);
+      };
+    }
+
+    // Timeout de fallback para não travar
+    setTimeout(() => {
+      const fallback = pickVoice();
+      resolve(fallback);
+    }, 400);
+  });
+
+  return voicesPromise;
 }
 
-if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  getPtVoice();
-  if (window.speechSynthesis.onvoiceschanged !== undefined) {
-    window.speechSynthesis.onvoiceschanged = () => {
-      getPtVoice();
-    };
+// Inicia o carregamento de vozes imediatamente no carregamento do módulo
+if (typeof window !== 'undefined') {
+  initPtVoices();
+}
+
+/**
+ * Retorna a voz PT-BR síncrona
+ */
+export function getPtVoice() {
+  if (!ptVoice && typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    const voices = window.speechSynthesis.getVoices() || [];
+    const ptVoices = voices.filter(v => 
+      v.lang && (v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang.toLowerCase().startsWith('pt'))
+    );
+    if (ptVoices.length > 0) {
+      ptVoice = ptVoices.find(v => /female|mulher|luciana|maria|leticia|francisca|fernanda|helena|vitoria|vitória|google.*português|microsoft.*maria/i.test(v.name)) || ptVoices[0];
+    } else if (voices.length > 0) {
+      ptVoice = voices[0];
+    }
   }
+  return ptVoice;
 }
 
 export function getAudioContext() {
@@ -116,11 +179,11 @@ export function isAudioContextRunning() {
   return ctx && ctx.state === 'running';
 }
 
-export function unlockAudio() {
+export async function unlockAudio() {
   try {
     const ctx = getAudioContext();
     if (ctx && ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
+      await ctx.resume().catch(() => {});
     }
 
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -131,29 +194,11 @@ export function unlockAudio() {
 
 export function warmupAudio() {
   unlockAudio();
-  try {
-    const ctx = getAudioContext();
-    if (ctx && ctx.state === 'running') {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.05);
-    }
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      getPtVoice();
-      const warmup = new SpeechSynthesisUtterance(' ');
-      warmup.volume = 0.01;
-      warmup.rate = 10;
-      window.speechSynthesis.speak(warmup);
-    }
-  } catch (e) {}
+  initPtVoices();
 }
 
 export function playChimeSound() {
-  return new Promise((resolve) => {
+  return new Promise(async (resolve) => {
     let resolved = false;
     const safeResolve = () => {
       if (!resolved) {
@@ -165,7 +210,9 @@ export function playChimeSound() {
     const ctx = getAudioContext();
     if (ctx) {
       if (ctx.state === 'suspended') {
-        ctx.resume().catch(() => {});
+        try {
+          await ctx.resume();
+        } catch (e) {}
       }
 
       if (ctx.state === 'running') {
@@ -268,71 +315,82 @@ export function formatTicketSpeech(ticket) {
 }
 
 export function speakTicket(ticket) {
-  return new Promise((resolve) => {
-    const phrase = typeof ticket === 'string' ? ticket : formatTicketSpeech(ticket);
-
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      try {
-        window.speechSynthesis.resume();
-
-        const selectedVoice = getPtVoice();
-        const utterance = new SpeechSynthesisUtterance(phrase);
-        utterance.lang = 'pt-BR';
-        utterance.rate = 0.95; // Velocidade natural e clara
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-
-        if (selectedVoice) {
-          utterance.voice = selectedVoice;
-        }
-
-        // Ancoramento global para evitar GC no Chromium
-        window._activeUtterance = utterance;
-
-        let hasEnded = false;
-        let safetyTimer = null;
-
-        const finish = () => {
-          if (!hasEnded) {
-            hasEnded = true;
-            if (safetyTimer) clearTimeout(safetyTimer);
-            window._activeUtterance = null;
-            resolve();
-          }
-        };
-
-        utterance.onend = finish;
-        utterance.onerror = (err) => {
-          console.warn('[SpeechSynthesis Error]', err);
-          finish();
-        };
-
-        // Trava máxima de 4.5 segundos por fala
-        safetyTimer = setTimeout(() => {
-          finish();
-        }, 4500);
-
-        // Se houver fala anterior rodando, cancela suavemente antes de falar
-        if (window.speechSynthesis.speaking) {
-          window.speechSynthesis.cancel();
-          setTimeout(() => {
-            window.speechSynthesis.speak(utterance);
-          }, 60);
-        } else {
-          window.speechSynthesis.speak(utterance);
-        }
-        return;
-      } catch (err) {
-        console.error('[SpeechSynthesis Exception]', err);
-      }
+  return new Promise(async (resolve) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      return resolve();
     }
 
-    resolve();
+    try {
+      // 1. Destrava qualquer estado pausado do SpeechSynthesis
+      window.speechSynthesis.resume();
+
+      const phrase = typeof ticket === 'string' ? ticket : formatTicketSpeech(ticket);
+      if (!phrase || !phrase.trim()) {
+        return resolve();
+      }
+
+      // 2. Garante que as vozes foram inicializadas
+      await initPtVoices();
+
+      const utterance = new SpeechSynthesisUtterance(phrase);
+      utterance.lang = 'pt-BR';
+      utterance.rate = 0.95; // Velocidade natural e nítida
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      const selectedVoice = getPtVoice();
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+
+      let hasEnded = false;
+      let safetyTimer = null;
+
+      const finish = () => {
+        if (!hasEnded) {
+          hasEnded = true;
+          if (safetyTimer) clearTimeout(safetyTimer);
+          window._activeUtterance = null;
+          resolve();
+        }
+      };
+
+      utterance.onend = finish;
+      utterance.onerror = (err) => {
+        console.warn('[SpeechSynthesis Error]', err);
+        finish();
+      };
+
+      // Trava de segurança máxima de 5.5 segundos
+      safetyTimer = setTimeout(finish, 5500);
+
+      // Ancoramento global para evitar Garbage Collection no Chromium durante a fala
+      window._activeUtterance = utterance;
+
+      // Limpa qualquer fala residual anterior de forma segura
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+          try {
+            window.speechSynthesis.resume();
+            window.speechSynthesis.speak(utterance);
+          } catch (e) {
+            finish();
+          }
+        }, 100);
+      } else {
+        window.speechSynthesis.speak(utterance);
+      }
+    } catch (err) {
+      console.error('[SpeechSynthesis Exception]', err);
+      resolve();
+    }
   });
 }
 
 export async function announceTicket(ticket) {
-  unlockAudio();
+  await unlockAudio();
   await playChimeSound();
+  await new Promise(r => setTimeout(r, 100));
   await speakTicket(ticket);
 }
