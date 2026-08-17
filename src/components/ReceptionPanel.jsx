@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { fetchOfficesAndDoctors, registerPatientCall } from '../utils/socket';
+import { fetchOfficesAndDoctors, registerPatientCall, searchPatients } from '../utils/socket';
 import { 
   UserPlus, Users, Stethoscope, Star, CheckCircle, AlertCircle, Clock, 
-  Send, Tv, LogOut, UserCheck, RefreshCw, Monitor, DoorOpen, ExternalLink, ArrowLeft
+  Send, Tv, LogOut, UserCheck, RefreshCw, Monitor, DoorOpen, ExternalLink, ArrowLeft,
+  Search, Plus
 } from 'lucide-react';
 
 export default function ReceptionPanel({ 
@@ -16,6 +17,14 @@ export default function ReceptionPanel({
   const [document, setDocument] = useState('');
   const [phone, setPhone] = useState('');
   const [priorityType, setPriorityType] = useState('Normal'); // 'Normal' ou 'Preferencial'
+  const [selectedPatientId, setSelectedPatientId] = useState(null);
+
+  // Estados de Busca
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [mode, setMode] = useState('search'); // 'search' | 'form'
   
   const [offices, setOffices] = useState([]);
   const [doctors, setDoctors] = useState([]);
@@ -46,7 +55,52 @@ export default function ReceptionPanel({
 
   useEffect(() => {
     loadData();
+    handleSearch('');
   }, []);
+
+  const handleSearch = async (term = searchQuery) => {
+    const clean = typeof term === 'string' ? term.trim() : searchQuery.trim();
+    setIsSearching(true);
+    setHasSearched(true);
+    setErrorMsg('');
+
+    try {
+      const res = await searchPatients(clean);
+      if (res?.patients) {
+        setSearchResults(res.patients);
+      } else {
+        setSearchResults([]);
+      }
+    } catch (e) {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectPatient = (patient) => {
+    setSelectedPatientId(patient.id || null);
+    setPatientName(patient.name || '');
+    setDocument(patient.document || '');
+    setPhone(patient.phone || '');
+    setErrorMsg('');
+    setMode('form');
+  };
+
+  const handleStartNewPatient = (presetName = '') => {
+    setSelectedPatientId(null);
+    setPatientName(presetName || searchQuery.trim() || '');
+    setDocument('');
+    setPhone('');
+    setPriorityType('Normal');
+    setErrorMsg('');
+    setMode('form');
+  };
+
+  const handleBackToSearch = () => {
+    setMode('search');
+    setErrorMsg('');
+  };
 
   const selectedDoctor = doctors.find(d => String(d.id) === String(selectedDoctorId));
 
@@ -77,6 +131,7 @@ export default function ReceptionPanel({
     setSuccessMsg('');
 
     const res = await registerPatientCall({
+      patientId: selectedPatientId,
       patientName: patientName.trim(),
       document: document.trim(),
       phone: phone.trim(),
@@ -106,13 +161,19 @@ export default function ReceptionPanel({
       setRecentPatients(prev => [newEntry, ...prev.slice(0, 8)]);
       setSuccessMsg(`Paciente ${patientName.trim()} encaminhado com sucesso para ${doctorName} (${officeName} • ${tvLabel})!`);
       
-      // Limpa os campos
+      // Limpa os campos e retorna para busca
       setPatientName('');
       setDocument('');
       setPhone('');
+      setSelectedPatientId(null);
+      setSearchQuery('');
       setPriorityType('Normal');
 
-      setTimeout(() => setSuccessMsg(''), 5000);
+      setTimeout(() => {
+        setSuccessMsg('');
+        setMode('search');
+        handleSearch('');
+      }, 2000);
     } else {
       setErrorMsg(res?.message || 'Erro ao encaminhar paciente para o médico.');
     }
@@ -219,137 +280,305 @@ export default function ReceptionPanel({
         {/* GRID PRINCIPAL */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           
-          {/* FORMULÁRIO DE CADASTRO */}
+          {/* PAINEL DE BUSCA & CADASTRO DE PACIENTE */}
           <div className="lg:col-span-7 bg-cmip-900/80 border border-cmip-600/30 p-6 md:p-8 rounded-3xl glass-panel space-y-6 shadow-2xl">
             
-            <div className="flex items-center gap-3 border-b border-cmip-600/30 pb-4">
-              <div className="p-2.5 bg-cmip-500/20 text-cmip-400 rounded-xl">
-                <UserPlus className="w-6 h-6" />
+            <div className="flex items-center justify-between border-b border-cmip-600/30 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-cmip-500/20 text-cmip-400 rounded-xl">
+                  {mode === 'search' ? <Search className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">
+                    {mode === 'search' ? 'Localizar ou Cadastrar Paciente' : (selectedPatientId ? 'Encaminhar Paciente' : 'Novo Cadastro de Paciente')}
+                  </h2>
+                  <p className="text-xs text-cmip-100/70">
+                    {mode === 'search' 
+                      ? 'Consulte se o paciente já possui cadastro antes de prosseguir' 
+                      : 'O paciente será adicionado em tempo real no painel do consultório'}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-lg font-bold text-white">Cadastrar Paciente na Fila do Médico</h2>
-                <p className="text-xs text-cmip-100/70">O paciente será adicionado em tempo real no painel do consultório</p>
-              </div>
+
+              {mode === 'form' && (
+                <button
+                  type="button"
+                  onClick={handleBackToSearch}
+                  className="px-3.5 py-2 bg-cmip-950 hover:bg-cmip-800 text-cmip-200 hover:text-white font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-1.5 transition-colors"
+                >
+                  <ArrowLeft className="w-4 h-4 text-cmip-400" />
+                  <span>Voltar à Busca</span>
+                </button>
+              )}
             </div>
 
-            <form onSubmit={handleRegister} className="space-y-5">
-              
-              {/* NOME COMPLETO */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2">
-                  Nome Completo do Paciente <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: João da Silva Santos"
-                  value={patientName}
-                  onChange={(e) => setPatientName(e.target.value)}
-                  className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3.5 text-base font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
-                  autoFocus
-                />
-              </div>
+            {/* FASE 1: BUSCA DE PACIENTES */}
+            {mode === 'search' && (
+              <div className="space-y-5">
+                
+                {/* BARRA DE PESQUISA */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider">
+                    Buscar Paciente Cadastrado:
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-cmip-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Digite o nome, CPF ou telefone do paciente..."
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          handleSearch(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSearch(searchQuery);
+                        }}
+                        className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl pl-10 pr-4 py-3.5 text-sm font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSearch(searchQuery)}
+                      disabled={isSearching}
+                      className="px-5 py-3 bg-cmip-800 hover:bg-cmip-700 text-white font-bold text-xs rounded-xl border border-cmip-500/40 flex items-center gap-2 transition-colors"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isSearching ? 'animate-spin' : ''}`} />
+                      <span>Buscar</span>
+                    </button>
+                  </div>
+                </div>
 
-              {/* SELETOR DE MÉDICO / CONSULTÓRIO */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2 flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Stethoscope className="w-4 h-4 text-cmip-400" />
-                    Médico / Consultório de Destino <span className="text-rose-400">*</span>
-                  </span>
-                  {selectedDoctor && (
-                    <span className="text-[11px] font-bold text-cyan-300">
-                      Destino: {selectedDoctor.office_name || 'Consultório'}
+                {/* RESULTADOS */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-cmip-400 uppercase tracking-wider">
+                      {isSearching ? 'Pesquisando base de dados...' : (searchResults.length > 0 ? `Pacientes Cadastrados (${searchResults.length}):` : 'Resultados:')}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => handleStartNewPatient('')}
+                      className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Cadastrar Novo Direto</span>
+                    </button>
+                  </div>
+
+                  {/* LISTA */}
+                  {searchResults.length > 0 && (
+                    <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                      {searchResults.map((pat, idx) => (
+                        <div
+                          key={pat.id || idx}
+                          className="p-4 bg-cmip-950/90 border border-cmip-600/40 hover:border-emerald-500/60 rounded-2xl flex items-center justify-between gap-3 transition-all hover:scale-[1.005]"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white text-base truncate">{pat.name}</span>
+                              {pat.document && (
+                                <span className="px-2.5 py-0.5 rounded bg-cmip-800 text-cmip-300 text-xs font-mono font-bold">
+                                  CPF: {pat.document}
+                                </span>
+                              )}
+                            </div>
+                            {pat.phone && (
+                              <div className="text-xs text-cmip-100/70 mt-1">
+                                Contato: {pat.phone}
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSelectPatient(pat)}
+                            className="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow flex items-center gap-1.5 shrink-0 transition-transform active:scale-95"
+                          >
+                            <span>Selecionar</span>
+                            <ArrowRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </label>
 
-                <select
-                  value={selectedDoctorId}
-                  onChange={(e) => setSelectedDoctorId(e.target.value)}
-                  className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3.5 text-sm font-bold focus:outline-none focus:border-cmip-400 shadow-inner"
+                  {/* NENHUM ENCONTRADO -> FALLBACK */}
+                  {hasSearched && searchResults.length === 0 && !isSearching && (
+                    <div className="p-8 bg-cmip-950/80 border border-amber-500/40 rounded-3xl text-center space-y-4 animate-fade-in">
+                      <div className="w-12 h-12 bg-amber-500/20 text-amber-300 rounded-2xl flex items-center justify-center mx-auto border border-amber-500/30">
+                        <AlertCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-white">
+                          {searchQuery.trim() ? `Nenhum cadastro encontrado para "${searchQuery}"` : 'Nenhum paciente cadastrado'}
+                        </h3>
+                        <p className="text-xs text-cmip-100/70 mt-1">
+                          Este paciente ainda não está cadastrado. Deseja efetuar o cadastro agora?
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleStartNewPatient(searchQuery)}
+                        className="px-6 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 mx-auto transition-transform active:scale-95"
+                      >
+                        <UserPlus className="w-5 h-5 text-slate-950 stroke-[2.5]" />
+                        <span>Cadastrar "{searchQuery || 'Novo Paciente'}" Agora</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+            )}
+
+            {/* FASE 2: FORMULÁRIO */}
+            {mode === 'form' && (
+              <form onSubmit={handleRegister} className="space-y-5 animate-fade-in">
+                
+                {/* BANNER DE SELEÇÃO */}
+                <div className="p-3.5 bg-cmip-950/90 border border-emerald-500/40 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-xl shrink-0">
+                      {selectedPatientId ? <UserCheck className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                        {selectedPatientId ? 'Paciente Localizado no Cadastro' : 'Novo Cadastro de Paciente'}
+                      </span>
+                      <strong className="text-white text-sm truncate block">{patientName || 'Novo Paciente'}</strong>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleBackToSearch}
+                    className="px-3 py-1.5 bg-cmip-800 hover:bg-cmip-700 text-cmip-200 hover:text-white font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-1 shrink-0 transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Trocar Paciente</span>
+                  </button>
+                </div>
+
+                {/* NOME COMPLETO */}
+                <div>
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2">
+                    Nome Completo do Paciente <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: João da Silva Santos"
+                    value={patientName}
+                    onChange={(e) => setPatientName(e.target.value)}
+                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3.5 text-base font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
+                    autoFocus={!selectedPatientId}
+                  />
+                </div>
+
+                {/* SELETOR DE MÉDICO / CONSULTÓRIO */}
+                <div>
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2 flex items-center justify-between">
+                    <span className="flex items-center gap-2">
+                      <Stethoscope className="w-4 h-4 text-cmip-400" />
+                      Médico / Consultório de Destino <span className="text-rose-400">*</span>
+                    </span>
+                    {selectedDoctor && (
+                      <span className="text-[11px] font-bold text-cyan-300">
+                        Destino: {selectedDoctor.office_name || 'Consultório'}
+                      </span>
+                    )}
+                  </label>
+
+                  <select
+                    value={selectedDoctorId}
+                    onChange={(e) => setSelectedDoctorId(e.target.value)}
+                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3.5 text-sm font-bold focus:outline-none focus:border-cmip-400 shadow-inner"
+                  >
+                    {doctors.map(doc => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.name} — {doc.specialty || 'Geral'} ({doc.office_name || 'Consultório'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* SELEÇÃO DE PRIORIDADE */}
+                <div>
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2">
+                    Prioridade de Atendimento
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPriorityType('Normal')}
+                      className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                        priorityType === 'Normal'
+                          ? 'bg-cmip-800 text-white border-cmip-400 shadow-lg scale-[1.02]'
+                          : 'bg-cmip-950 text-cmip-100/60 border-cmip-600/30 hover:bg-cmip-900'
+                      }`}
+                    >
+                      <Users className="w-4 h-4" />
+                      <span>Atendimento Normal</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setPriorityType('Preferencial')}
+                      className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                        priorityType === 'Preferencial'
+                          ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-lg scale-[1.02]'
+                          : 'bg-cmip-950 text-amber-400/70 border-amber-600/30 hover:bg-cmip-900'
+                      }`}
+                    >
+                      <Star className="w-4 h-4 fill-current" />
+                      <span>Preferencial (Idoso/PCD)</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* CAMPOS OPCIONAIS (CPF / TELEFONE) */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
+                      CPF / Documento (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="000.000.000-00"
+                      value={document}
+                      onChange={(e) => setDocument(e.target.value)}
+                      className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
+                      Telefone / Celular (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="(00) 00000-0000"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
+                    />
+                  </div>
+                </div>
+
+                {/* BOTÃO SUBMIT */}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-4 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 font-black text-lg rounded-2xl shadow-xl shadow-cmip-500/25 flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.98] disabled:opacity-50"
                 >
-                  {doctors.map(doc => (
-                    <option key={doc.id} value={doc.id}>
-                      {doc.name} — {doc.specialty || 'Geral'} ({doc.office_name || 'Consultório'})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  <Send className="w-5 h-5" />
+                  <span>{loading ? 'Encaminhando...' : (selectedPatientId ? 'ENCAMINHAR PACIENTE PARA O MÉDICO' : 'CADASTRAR E ENVIAR PARA O MÉDICO')}</span>
+                </button>
 
-              {/* SELEÇÃO DE PRIORIDADE */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-2">
-                  Prioridade de Atendimento
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setPriorityType('Normal')}
-                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                      priorityType === 'Normal'
-                        ? 'bg-cmip-800 text-white border-cmip-400 shadow-lg scale-[1.02]'
-                        : 'bg-cmip-950 text-cmip-100/60 border-cmip-600/30 hover:bg-cmip-900'
-                    }`}
-                  >
-                    <Users className="w-4 h-4" />
-                    <span>Atendimento Normal</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPriorityType('Preferencial')}
-                    className={`py-3 px-4 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                      priorityType === 'Preferencial'
-                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-lg scale-[1.02]'
-                        : 'bg-cmip-950 text-amber-400/70 border-amber-600/30 hover:bg-cmip-900'
-                    }`}
-                  >
-                    <Star className="w-4 h-4 fill-current" />
-                    <span>Preferencial (Idoso/PCD)</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* CAMPOS OPCIONAIS (CPF / TELEFONE) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
-                    CPF / Documento (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="000.000.000-00"
-                    value={document}
-                    onChange={(e) => setDocument(e.target.value)}
-                    className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
-                    Telefone / Celular (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="(00) 00000-0000"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3.5 py-2.5 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
-                  />
-                </div>
-              </div>
-
-              {/* BOTÃO SUBMIT */}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-4 bg-gradient-to-r from-cmip-500 to-cmip-600 hover:from-cmip-400 hover:to-cmip-500 text-cmip-950 font-black text-lg rounded-2xl shadow-xl shadow-cmip-500/25 flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.98] disabled:opacity-50"
-              >
-                <Send className="w-5 h-5" />
-                <span>{loading ? 'Encaminhando...' : 'CADASTRAR E ENVIAR PARA O MÉDICO'}</span>
-              </button>
-
-            </form>
+              </form>
+            )}
 
           </div>
 

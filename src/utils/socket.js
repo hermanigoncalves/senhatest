@@ -360,6 +360,16 @@ export async function updateUser(payload) {
 }
 
 // --- FLUXO DE FILAS E ATENDIMENTO ---
+export async function searchPatients(query = '') {
+  try {
+    const res = await fetchWithAuth(`/api/medical?view=search-patients&q=${encodeURIComponent(query)}`);
+    if (res.ok) return await res.json();
+    return { success: false, patients: [] };
+  } catch (e) {
+    return { success: false, patients: [] };
+  }
+}
+
 export async function registerPatientCall(payload) {
   try {
     const res = await fetchWithAuth('/api/medical', {

@@ -107,6 +107,58 @@ export default async function handler(req, res) {
         });
       }
 
+      // B.1) Busca de Pacientes Cadastrados (por Nome, CPF ou Telefone)
+      if (view === 'search-patients' || view === 'patients') {
+        const queryTerm = (req.query?.q || req.query?.query || '').trim();
+        let patientsList = [];
+
+        if (queryTerm) {
+          const { data: pats } = await supabaseAdmin
+            .from('patients')
+            .select('*')
+            .or(`name.ilike.%${queryTerm}%,document.ilike.%${queryTerm}%,phone.ilike.%${queryTerm}%`)
+            .order('name')
+            .limit(20);
+
+          if (pats) patientsList = pats;
+
+          // Se não encontrou ou poucos resultados, complementa com histórico
+          if (patientsList.length < 5) {
+            const { data: callHistory } = await supabaseAdmin
+              .from('patient_calls')
+              .select('patient_id, patient_name, created_at')
+              .ilike('patient_name', `%${queryTerm}%`)
+              .order('id', { ascending: false })
+              .limit(10);
+
+            if (callHistory) {
+              const existingNames = new Set(patientsList.map(p => p.name.toLowerCase()));
+              for (const c of callHistory) {
+                if (c.patient_name && !existingNames.has(c.patient_name.toLowerCase())) {
+                  existingNames.add(c.patient_name.toLowerCase());
+                  patientsList.push({
+                    id: c.patient_id || null,
+                    name: c.patient_name,
+                    document: '',
+                    phone: '',
+                    isFromHistory: true
+                  });
+                }
+              }
+            }
+          }
+        } else {
+          const { data: pats } = await supabaseAdmin
+            .from('patients')
+            .select('*')
+            .order('id', { ascending: false })
+            .limit(10);
+          if (pats) patientsList = pats;
+        }
+
+        return res.status(200).json({ success: true, patients: patientsList });
+      }
+
       // --------------------------------------------------------
       // C1) CANAL: TV DA RECEPÇÃO (Exclusivo para Senhas/Guichês)
       // --------------------------------------------------------
@@ -593,7 +645,55 @@ export default async function handler(req, res) {
         return res.status(200).json({ success: true, message: 'Usuário atualizado com sucesso!', user: updated?.[0] });
       }
 
-      // E) ENCAMINHAMENTO DE PACIENTE PELA RECEPÇÃO
+      // E.1) BUSCA DE PACIENTES CADASTRADOS (POST)
+      if (action === 'search-patients') {
+        const queryTerm = (payload?.query || payload?.q || '').trim();
+        let patientsList = [];
+        if (queryTerm) {
+          const { data: pats } = await supabaseAdmin
+            .from('patients')
+            .select('*')
+            .or(`name.ilike.%${queryTerm}%,document.ilike.%${queryTerm}%,phone.ilike.%${queryTerm}%`)
+            .order('name')
+            .limit(20);
+          if (pats) patientsList = pats;
+
+          if (patientsList.length < 5) {
+            const { data: callHistory } = await supabaseAdmin
+              .from('patient_calls')
+              .select('patient_id, patient_name, created_at')
+              .ilike('patient_name', `%${queryTerm}%`)
+              .order('id', { ascending: false })
+              .limit(10);
+
+            if (callHistory) {
+              const existingNames = new Set(patientsList.map(p => p.name.toLowerCase()));
+              for (const c of callHistory) {
+                if (c.patient_name && !existingNames.has(c.patient_name.toLowerCase())) {
+                  existingNames.add(c.patient_name.toLowerCase());
+                  patientsList.push({
+                    id: c.patient_id || null,
+                    name: c.patient_name,
+                    document: '',
+                    phone: '',
+                    isFromHistory: true
+                  });
+                }
+              }
+            }
+          }
+        } else {
+          const { data: pats } = await supabaseAdmin
+            .from('patients')
+            .select('*')
+            .order('id', { ascending: false })
+            .limit(10);
+          if (pats) patientsList = pats;
+        }
+        return res.status(200).json({ success: true, patients: patientsList });
+      }
+
+      // E.2) ENCAMINHAMENTO DE PACIENTE PELA RECEPÇÃO
       if (action === 'register-patient' || action === 'register-patient-call') {
         const authUser = extractAuthUser(req);
         if (!authUser) return res.status(401).json({ success: false, message: 'Autenticação necessária.' });
@@ -601,7 +701,7 @@ export default async function handler(req, res) {
           return res.status(403).json({ success: false, message: 'Acesso negado. Ação restrita à Recepção e Administradores.' });
         }
 
-        const { patientName, document, phone, doctorId, doctorName, officeName, targetTv, type = 'Normal', createdBy } = payload || {};
+        const { patientId: inputPatientId, patientName, document, phone, doctorId, doctorName, officeName, targetTv, type = 'Normal', createdBy } = payload || {};
 
         if (!patientName || !patientName.trim()) {
           return res.status(400).json({ success: false, message: 'Nome do paciente é obrigatório.' });
@@ -627,14 +727,60 @@ export default async function handler(req, res) {
           }
         }
 
-        let patientId = null;
+        let patientId = inputPatientId && typeof inputPatientId === 'number' ? inputPatientId : null;
         try {
-          const { data: pat } = await supabaseAdmin
-            .from('patients')
-            .insert([{ name: patientName.trim(), document, phone }])
-            .select();
-          if (pat && pat[0]) patientId = pat[0].id;
-        } catch (e) {}
+          if (patientId) {
+            // Atualiza telefone e documento se foram informados
+            const updateObj = {};
+            if (document && document.trim()) updateObj.document = document.trim();
+            if (phone && phone.trim()) updateObj.phone = phone.trim();
+            if (Object.keys(updateObj).length > 0) {
+              await supabaseAdmin.from('patients').update(updateObj).eq('id', patientId);
+            }
+          } else {
+            // Verifica se paciente já existe para não duplicar
+            let existingPat = null;
+            if (document && document.trim()) {
+              const { data: found } = await supabaseAdmin
+                .from('patients')
+                .select('*')
+                .eq('document', document.trim())
+                .limit(1);
+              if (found && found[0]) existingPat = found[0];
+            }
+            if (!existingPat && patientName) {
+              const { data: found } = await supabaseAdmin
+                .from('patients')
+                .select('*')
+                .ilike('name', patientName.trim())
+                .limit(1);
+              if (found && found[0]) existingPat = found[0];
+            }
+
+            if (existingPat) {
+              patientId = existingPat.id;
+              // Atualiza telefone ou documento se estavam vazios
+              const updateObj = {};
+              if (!existingPat.document && document) updateObj.document = document.trim();
+              if (!existingPat.phone && phone) updateObj.phone = phone.trim();
+              if (Object.keys(updateObj).length > 0) {
+                await supabaseAdmin.from('patients').update(updateObj).eq('id', patientId);
+              }
+            } else {
+              const { data: pat } = await supabaseAdmin
+                .from('patients')
+                .insert([{
+                  name: patientName.trim(),
+                  document: (document || '').trim() || null,
+                  phone: (phone || '').trim() || null
+                }])
+                .select();
+              if (pat && pat[0]) patientId = pat[0].id;
+            }
+          }
+        } catch (e) {
+          console.error('[Patient Registration Upsert]', e);
+        }
 
         const { data: callItem, error: callErr } = await supabaseAdmin
           .from('patient_calls')

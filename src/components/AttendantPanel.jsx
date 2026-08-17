@@ -2,12 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { 
   socket, fetchVercelState, setInitialTicketVercel, callNextVercel, 
   callCustomVercel, repeatCallVercel, resetQueueVercel, callWaitingTicketVercel,
-  fetchOfficesAndDoctors, registerPatientCall
+  fetchOfficesAndDoctors, registerPatientCall, searchPatients
 } from '../utils/socket';
 import { 
   Play, RotateCcw, Hash, Users, Trash2, ShieldAlert, Plus, SlidersHorizontal, 
   Check, Tv, Tablet, Star, Bell, Clock, AlertCircle, ArrowRight, LogIn, Stethoscope, 
-  LogOut, UserPlus, X, Send, CheckCircle, ExternalLink
+  LogOut, UserPlus, X, Send, CheckCircle, ExternalLink, Search, UserCheck, ArrowLeft, RefreshCw
 } from 'lucide-react';
 
 export default function AttendantPanel({ 
@@ -48,7 +48,7 @@ export default function AttendantPanel({
   const [showResetModal, setShowResetModal] = useState(false);
   const [isCalling, setIsCalling] = useState(false);
 
-  // --- GERENCIAMENTO DE CADASTRO DE PACIENTE INTEGRADO ---
+  // --- GERENCIAMENTO DE BUSCA & CADASTRO DE PACIENTE INTEGRADO ---
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [doctors, setDoctors] = useState([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState('');
@@ -56,6 +56,15 @@ export default function AttendantPanel({
   const [document, setDocument] = useState('');
   const [phone, setPhone] = useState('');
   const [priorityType, setPriorityType] = useState('Normal');
+  const [selectedPatientId, setSelectedPatientId] = useState(null);
+
+  // Estados da Busca de Pacientes
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [modalMode, setModalMode] = useState('search'); // 'search' | 'form'
+
   const [isRegistering, setIsRegistering] = useState(false);
   const [registerSuccessMsg, setRegisterSuccessMsg] = useState('');
   const [registerErrorMsg, setRegisterErrorMsg] = useState('');
@@ -82,7 +91,64 @@ export default function AttendantPanel({
     loadDoctorsList();
     setRegisterErrorMsg('');
     setRegisterSuccessMsg('');
+    setSearchQuery('');
+    setSearchResults([]);
+    setHasSearched(false);
+    setSelectedPatientId(null);
+    setPatientName('');
+    setDocument('');
+    setPhone('');
+    setPriorityType('Normal');
+    setModalMode('search');
     setShowRegisterModal(true);
+
+    // Carrega sugestões iniciais
+    handleSearch('');
+  };
+
+  const handleSearch = async (term = searchQuery) => {
+    const clean = typeof term === 'string' ? term.trim() : searchQuery.trim();
+    setIsSearching(true);
+    setHasSearched(true);
+    setRegisterErrorMsg('');
+
+    try {
+      const res = await searchPatients(clean);
+      if (res?.patients) {
+        setSearchResults(res.patients);
+      } else {
+        setSearchResults([]);
+      }
+    } catch (e) {
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleSelectPatient = (patient) => {
+    setSelectedPatientId(patient.id || null);
+    setPatientName(patient.name || '');
+    setDocument(patient.document || '');
+    setPhone(patient.phone || '');
+    setRegisterErrorMsg('');
+    setModalMode('form');
+  };
+
+  const handleStartNewPatient = (presetName = '') => {
+    setSelectedPatientId(null);
+    setPatientName(presetName || searchQuery.trim() || '');
+    setDocument('');
+    setPhone('');
+    setPriorityType('Normal');
+    setRegisterErrorMsg('');
+    setModalMode('form');
+  };
+
+  const handleBackToSearch = () => {
+    setModalMode('search');
+    setRegisterErrorMsg('');
+    setRegisterSuccessMsg('');
   };
 
   const handleRegisterPatient = async (e) => {
@@ -106,6 +172,7 @@ export default function AttendantPanel({
     setRegisterSuccessMsg('');
 
     const res = await registerPatientCall({
+      patientId: selectedPatientId,
       patientName: patientName.trim(),
       document: document.trim(),
       phone: phone.trim(),
@@ -131,11 +198,20 @@ export default function AttendantPanel({
         time: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
       };
       setRecentRegistered(prev => [newEntry, ...prev.slice(0, 5)]);
-      setRegisterSuccessMsg(`Paciente ${patientName.trim()} cadastrado e encaminhado para ${doctorName} (${officeName} • ${tvLabel})!`);
+      setRegisterSuccessMsg(`Paciente ${patientName.trim()} encaminhado com sucesso para ${doctorName} (${officeName} • ${tvLabel})!`);
+      
+      // Reseta e volta para o modo busca
       setPatientName('');
       setDocument('');
       setPhone('');
+      setSelectedPatientId(null);
+      setSearchQuery('');
       setPriorityType('Normal');
+      
+      setTimeout(() => {
+        setModalMode('search');
+        handleSearch('');
+      }, 1500);
     } else {
       setRegisterErrorMsg(res?.message || 'Erro ao encaminhar paciente para o médico.');
     }
@@ -627,23 +703,25 @@ export default function AttendantPanel({
         </div>
       )}
 
-      {/* MODAL DE CADASTRO RÁPIDO DE PACIENTE */}
+      {/* MODAL DE BUSCA & CADASTRO DE PACIENTE */}
       {showRegisterModal && (
         <div className="fixed inset-0 bg-cmip-950/85 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-cmip-900 border border-emerald-500/50 p-6 md:p-8 rounded-3xl max-w-xl w-full shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto">
+          <div className="bg-cmip-900 border border-emerald-500/50 p-6 md:p-8 rounded-3xl max-w-2xl w-full shadow-2xl space-y-5 relative max-h-[92vh] overflow-y-auto">
             
             {/* Header do Modal */}
             <div className="flex items-center justify-between border-b border-cmip-600/30 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-emerald-500/20 text-emerald-300 rounded-2xl border border-emerald-500/30">
-                  <UserPlus className="w-6 h-6" />
+                  {modalMode === 'search' ? <Search className="w-6 h-6" /> : <UserPlus className="w-6 h-6" />}
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-white uppercase tracking-tight">
-                    Cadastro de Paciente
+                    {modalMode === 'search' ? 'Localizar ou Cadastrar Paciente' : (selectedPatientId ? 'Encaminhar Paciente' : 'Novo Cadastro de Paciente')}
                   </h3>
                   <p className="text-xs text-cmip-100/70">
-                    Encaminhe o paciente em tempo real para o consultório médico
+                    {modalMode === 'search' 
+                      ? 'Pesquise pelo nome ou documento antes de cadastrar' 
+                      : 'Defina o médico e consultório de destino para encaminhamento em tempo real'}
                   </p>
                 </div>
               </div>
@@ -673,135 +751,285 @@ export default function AttendantPanel({
               </div>
             )}
 
-            <form onSubmit={handleRegisterPatient} className="space-y-4">
-              {/* Nome do Paciente */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
-                  Nome Completo do Paciente <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ex: Maria das Graças Silva"
-                  value={patientName}
-                  onChange={(e) => setPatientName(e.target.value)}
-                  className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
-                  autoFocus
-                />
-              </div>
+            {/* FASE 1: BUSCA DE PACIENTE */}
+            {modalMode === 'search' && (
+              <div className="space-y-5">
+                
+                {/* BARRA DE PESQUISA */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider">
+                    Buscar Paciente Cadastrado (Nome, CPF ou Telefone):
+                  </label>
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="w-4 h-4 text-cmip-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Ex: João da Silva ou 123.456.789-00"
+                        value={searchQuery}
+                        onChange={(e) => {
+                          setSearchQuery(e.target.value);
+                          handleSearch(e.target.value);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSearch(searchQuery);
+                        }}
+                        className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl pl-10 pr-4 py-3 text-sm font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
+                        autoFocus
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSearch(searchQuery)}
+                      disabled={isSearching}
+                      className="px-4 py-3 bg-cmip-800 hover:bg-cmip-700 text-white font-bold text-xs rounded-xl border border-cmip-500/40 flex items-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isSearching ? 'animate-spin' : ''}`} />
+                      <span>Buscar</span>
+                    </button>
+                  </div>
+                </div>
 
-              {/* Seletor de Médico / Consultório */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                  <span className="flex items-center gap-1.5">
-                    <Stethoscope className="w-4 h-4 text-emerald-400" />
-                    Médico / Consultório de Destino <span className="text-rose-400">*</span>
-                  </span>
-                </label>
-                <select
-                  value={selectedDoctorId}
-                  onChange={(e) => setSelectedDoctorId(e.target.value)}
-                  className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-cmip-400 shadow-inner"
-                >
-                  {doctors.map(doc => (
-                    <option key={doc.id} value={doc.id}>
-                      {doc.name} — {doc.specialty || 'Geral'} ({doc.office_name || 'Consultório'})
-                    </option>
-                  ))}
-                  {doctors.length === 0 && (
-                    <option value="">Carregando médicos ativos...</option>
+                {/* RESULTADOS DA BUSCA */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-cmip-400 uppercase tracking-wider">
+                      {isSearching ? 'Buscando...' : (searchResults.length > 0 ? `Pacientes Encontrados (${searchResults.length}):` : 'Resultado da Busca:')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleStartNewPatient('')}
+                      className="text-xs font-bold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Cadastrar Novo Direto</span>
+                    </button>
+                  </div>
+
+                  {/* LISTA DE PACIENTES ENCONTRADOS */}
+                  {searchResults.length > 0 && (
+                    <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                      {searchResults.map((pat, idx) => (
+                        <div
+                          key={pat.id || idx}
+                          className="p-3.5 bg-cmip-950/90 border border-cmip-600/40 hover:border-emerald-500/60 rounded-2xl flex items-center justify-between gap-3 transition-all hover:scale-[1.005] group"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white text-sm truncate">{pat.name}</span>
+                              {pat.document && (
+                                <span className="px-2 py-0.5 rounded bg-cmip-800 text-cmip-300 text-[10px] font-mono font-semibold">
+                                  CPF: {pat.document}
+                                </span>
+                              )}
+                            </div>
+                            {pat.phone && (
+                              <div className="text-xs text-cmip-100/60 mt-0.5">
+                                Tel: {pat.phone}
+                              </div>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSelectPatient(pat)}
+                            className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow flex items-center gap-1.5 shrink-0 transition-transform active:scale-95"
+                          >
+                            <span>Selecionar</span>
+                            <ArrowRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                </select>
+
+                  {/* NENHUM PACIENTE ENCONTRADO -> FALLBACK PARA CADASTRO */}
+                  {hasSearched && searchResults.length === 0 && !isSearching && (
+                    <div className="p-6 bg-cmip-950/80 border border-amber-500/40 rounded-2xl text-center space-y-3.5 animate-fade-in">
+                      <div className="w-10 h-10 bg-amber-500/20 text-amber-300 rounded-xl flex items-center justify-center mx-auto border border-amber-500/30">
+                        <AlertCircle className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-bold text-white">
+                          {searchQuery.trim() ? `Nenhum cadastro encontrado para "${searchQuery}"` : 'Nenhum paciente cadastrado encontrado'}
+                        </h4>
+                        <p className="text-xs text-cmip-100/70 mt-1">
+                          Deseja realizar um novo cadastro com estes dados e encaminhar para a consulta?
+                        </p>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleStartNewPatient(searchQuery)}
+                        className="px-5 py-3 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs md:text-sm rounded-xl shadow-lg flex items-center justify-center gap-2 mx-auto transition-transform active:scale-95"
+                      >
+                        <UserPlus className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                        <span>Cadastrar "{searchQuery || 'Novo Paciente'}" Agora</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+
               </div>
+            )}
 
-              {/* Prioridade */}
-              <div>
-                <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
-                  Tipo de Atendimento
-                </label>
-                <div className="grid grid-cols-2 gap-3">
+            {/* FASE 2: FORMULÁRIO DE ENCAMINHAMENTO / NOVO CADASTRO */}
+            {modalMode === 'form' && (
+              <form onSubmit={handleRegisterPatient} className="space-y-4 animate-fade-in">
+                
+                {/* BANNER DE IDENTIFICAÇÃO DO PACIENTE */}
+                <div className="p-3.5 bg-cmip-950/90 border border-emerald-500/40 rounded-2xl flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="p-2 bg-emerald-500/20 text-emerald-300 rounded-xl shrink-0">
+                      {selectedPatientId ? <UserCheck className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block">
+                        {selectedPatientId ? 'Paciente Selecionado do Cadastro' : 'Novo Cadastro de Paciente'}
+                      </span>
+                      <strong className="text-white text-sm truncate block">{patientName || 'Novo Paciente'}</strong>
+                    </div>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => setPriorityType('Normal')}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                      priorityType === 'Normal'
-                        ? 'bg-cmip-800 text-white border-cmip-400 shadow-md scale-[1.01]'
-                        : 'bg-cmip-950 text-cmip-100/60 border-cmip-600/30 hover:bg-cmip-900'
-                    }`}
+                    onClick={handleBackToSearch}
+                    className="px-3 py-1.5 bg-cmip-800 hover:bg-cmip-700 text-cmip-200 hover:text-white font-bold text-xs rounded-xl border border-cmip-600/40 flex items-center gap-1 shrink-0 transition-colors"
                   >
-                    <Users className="w-4 h-4" />
-                    <span>Normal</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setPriorityType('Preferencial')}
-                    className={`py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
-                      priorityType === 'Preferencial'
-                        ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-md scale-[1.01]'
-                        : 'bg-cmip-950 text-amber-400/70 border-amber-600/30 hover:bg-cmip-900'
-                    }`}
-                  >
-                    <Star className="w-4 h-4 fill-current" />
-                    <span>Preferencial</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Voltar à Busca</span>
                   </button>
                 </div>
-              </div>
 
-              {/* Documento e Telefone */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Nome do Paciente */}
                 <div>
-                  <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1">
-                    CPF (Opcional)
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
+                    Nome Completo do Paciente <span className="text-rose-400">*</span>
                   </label>
                   <input
                     type="text"
-                    placeholder="000.000.000-00"
-                    value={document}
-                    onChange={(e) => setDocument(e.target.value)}
-                    className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
+                    placeholder="Ex: Maria das Graças Silva"
+                    value={patientName}
+                    onChange={(e) => setPatientName(e.target.value)}
+                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30 shadow-inner"
+                    autoFocus={!selectedPatientId}
                   />
                 </div>
 
+                {/* Seletor de Médico / Consultório */}
                 <div>
-                  <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1">
-                    Telefone / Celular (Opcional)
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <Stethoscope className="w-4 h-4 text-emerald-400" />
+                      Médico / Consultório de Destino <span className="text-rose-400">*</span>
+                    </span>
                   </label>
-                  <input
-                    type="text"
-                    placeholder="(00) 00000-0000"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
-                  />
+                  <select
+                    value={selectedDoctorId}
+                    onChange={(e) => setSelectedDoctorId(e.target.value)}
+                    className="w-full bg-cmip-950 border border-cmip-500/40 text-white rounded-xl px-4 py-3 text-sm font-bold focus:outline-none focus:border-cmip-400 shadow-inner"
+                  >
+                    {doctors.map(doc => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.name} — {doc.specialty || 'Geral'} ({doc.office_name || 'Consultório'})
+                      </option>
+                    ))}
+                    {doctors.length === 0 && (
+                      <option value="">Carregando médicos ativos...</option>
+                    )}
+                  </select>
                 </div>
-              </div>
 
-              {/* Ações */}
-              <div className="pt-3 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowRegisterModal(false)}
-                  className="flex-1 py-3 bg-cmip-950 hover:bg-cmip-800 text-cmip-100 font-bold text-xs rounded-xl border border-cmip-600/40 transition-colors"
-                >
-                  Fechar
-                </button>
+                {/* Prioridade */}
+                <div>
+                  <label className="block text-xs font-bold text-cmip-100 uppercase tracking-wider mb-1.5">
+                    Tipo de Atendimento
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setPriorityType('Normal')}
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                        priorityType === 'Normal'
+                          ? 'bg-cmip-800 text-white border-cmip-400 shadow-md scale-[1.01]'
+                          : 'bg-cmip-950 text-cmip-100/60 border-cmip-600/30 hover:bg-cmip-900'
+                      }`}
+                    >
+                      <Users className="w-4 h-4" />
+                      <span>Normal</span>
+                    </button>
 
-                <button
-                  type="submit"
-                  disabled={isRegistering}
-                  className="flex-2 py-3 px-6 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs md:text-sm rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50"
-                >
-                  <Send className="w-4 h-4" />
-                  <span>{isRegistering ? 'Cadastrando...' : 'Cadastrar e Enviar ao Médico'}</span>
-                </button>
-              </div>
-            </form>
+                    <button
+                      type="button"
+                      onClick={() => setPriorityType('Preferencial')}
+                      className={`py-2.5 px-3 rounded-xl border text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition-all ${
+                        priorityType === 'Preferencial'
+                          ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-md scale-[1.01]'
+                          : 'bg-cmip-950 text-amber-400/70 border-amber-600/30 hover:bg-cmip-900'
+                      }`}
+                    >
+                      <Star className="w-4 h-4 fill-current" />
+                      <span>Preferencial</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Documento e Telefone */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1">
+                      CPF / Documento (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="000.000.000-00"
+                      value={document}
+                      onChange={(e) => setDocument(e.target.value)}
+                      className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-cmip-100 uppercase tracking-wider mb-1">
+                      Telefone / Celular (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="(00) 00000-0000"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full bg-cmip-950 border border-cmip-600/30 text-white rounded-xl px-3 py-2 text-xs font-semibold focus:outline-none focus:border-cmip-400 placeholder:text-cmip-100/30"
+                    />
+                  </div>
+                </div>
+
+                {/* Ações */}
+                <div className="pt-3 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={handleBackToSearch}
+                    className="flex-1 py-3 bg-cmip-950 hover:bg-cmip-800 text-cmip-100 font-bold text-xs rounded-xl border border-cmip-600/40 transition-colors"
+                  >
+                    Voltar
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isRegistering}
+                    className="flex-2 py-3 px-6 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs md:text-sm rounded-xl shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{isRegistering ? 'Encaminhando...' : (selectedPatientId ? 'ENCAMINHAR PARA O MÉDICO' : 'CADASTRAR E ENVIAR AO MÉDICO')}</span>
+                  </button>
+                </div>
+              </form>
+            )}
 
             {/* Histórico Recente Cadastrado */}
             {recentRegistered.length > 0 && (
               <div className="pt-4 border-t border-cmip-600/30 space-y-2">
                 <span className="text-[11px] font-bold text-cmip-400 uppercase tracking-wider block">
-                  Últimos Cadastrados Nesta Sessão:
+                  Últimos Pacientes Encaminhados Nesta Sessão:
                 </span>
                 <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
                   {recentRegistered.map((p, idx) => (
