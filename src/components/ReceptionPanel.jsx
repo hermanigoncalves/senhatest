@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { fetchOfficesAndDoctors, registerPatientCall } from '../utils/socket';
 import { 
   UserPlus, Users, Stethoscope, Star, CheckCircle, AlertCircle, Clock, 
-  Send, Tv, LogOut, UserCheck, RefreshCw, Monitor, DoorOpen, ExternalLink
+  Send, Tv, LogOut, UserCheck, RefreshCw, Monitor, DoorOpen, ExternalLink, ArrowLeft
 } from 'lucide-react';
 
 export default function ReceptionPanel({ 
@@ -142,6 +142,17 @@ export default function ReceptionPanel({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {onNavigateAttendant && (
+              <button
+                onClick={onNavigateAttendant}
+                className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs rounded-xl shadow-lg flex items-center gap-1.5 transition-transform active:scale-95"
+                title="Voltar para Chamada de Senhas do Guichê"
+              >
+                <ArrowLeft className="w-4 h-4 text-slate-950 stroke-[2.5]" />
+                <span>Chamar Senhas (Guichê)</span>
+              </button>
+            )}
+
             <button
               onClick={loadData}
               className="p-2.5 bg-cmip-950 hover:bg-cmip-800 text-cmip-100 rounded-xl border border-cmip-600/40 transition-colors"

@@ -173,7 +173,7 @@ export default function App() {
     );
   }
 
-  // B) PERFIL RECEPCIONISTA (receptionist): Acesso ao Cadastro de Pacientes e Atendimento de Guichês
+  // B) PERFIL RECEPCIONISTA (receptionist): Acesso ao Atendimento de Senhas e Cadastro de Pacientes
   if (currentUser.role === 'receptionist') {
     // Se tentar acessar /admin ou /medico, bloqueia com 403
     if (path === '/admin' || path === '/medico' || path === '/doctor') {
@@ -187,37 +187,39 @@ export default function App() {
       );
     }
 
-    if (path === '/atendente' || path === '/guiche' || path === '/senhas') {
+    // Se estiver explicitamente na página completa de cadastro
+    if (path === '/cadastro') {
       return (
-        <AttendantPanel 
-          user={currentUser}
-          onLogout={handleLogout}
-          onNavigateReception={() => navigateTo('/recepcao')}
-          onNavigateLogin={() => navigateTo('/login')}
+        <ReceptionPanel 
+          user={currentUser} 
+          onLogout={handleLogout} 
+          onNavigateTv={() => navigateTo('/tv-recepcao')}
+          onNavigateAttendant={() => navigateTo('/recepcao')}
         />
       );
     }
 
-    // Padrão do Recepcionista: Painel de Cadastro e Encaminhamento de Pacientes
+    // Padrão do Recepcionista: Painel de Atendimento de Senhas (com Botão e Modal de Cadastro de Pacientes)
     return (
-      <ReceptionPanel 
-        user={currentUser} 
-        onLogout={handleLogout} 
-        onNavigateTv={() => navigateTo('/tv-recepcao')}
-        onNavigateAttendant={() => navigateTo('/atendente')}
+      <AttendantPanel 
+        user={currentUser}
+        onLogout={handleLogout}
+        onNavigateReception={() => navigateTo('/cadastro')}
+        onNavigateLogin={() => navigateTo('/login')}
       />
     );
   }
 
   // C) PERFIL ADMINISTRADOR (admin): Acesso irrestrito a todas as áreas
   if (currentUser.role === 'admin') {
-    if (path === '/recepcao' || path === '/cadastro') {
+    if (path === '/cadastro') {
       return (
         <ReceptionPanel 
           user={currentUser} 
           onLogout={handleLogout} 
           onNavigateTv={() => navigateTo('/tv-recepcao')}
           onNavigateAdmin={() => navigateTo('/admin')}
+          onNavigateAttendant={() => navigateTo('/recepcao')}
         />
       );
     }
@@ -232,12 +234,12 @@ export default function App() {
       );
     }
 
-    if (path === '/atendente' || path === '/guiche' || path === '/senhas') {
+    if (path === '/recepcao' || path === '/atendente' || path === '/guiche' || path === '/senhas') {
       return (
         <AttendantPanel 
           user={currentUser}
           onLogout={handleLogout}
-          onNavigateReception={() => navigateTo('/recepcao')}
+          onNavigateReception={() => navigateTo('/cadastro')}
           onNavigateAdmin={() => navigateTo('/admin')}
         />
       );
