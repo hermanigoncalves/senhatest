@@ -12,6 +12,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
   const doctorName = user?.name || 'Dr. Médico';
   const initialOffice = user?.doctor?.office_name || 'Consultório CMIP';
 
+  const [activeDocId, setActiveDocId] = useState(doctorId);
   const [officeName, setOfficeName] = useState(initialOffice);
   const [targetTv, setTargetTv] = useState('1');
   const [queue, setQueue] = useState([]);
@@ -25,8 +26,11 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
     try {
       const res = await fetchDoctorsList();
       if (res?.doctors) {
-        const currentDoc = res.doctors.find(d => d.id === doctorId || d.name === doctorName);
+        const currentDoc = res.doctors.find(d => d.id === doctorId || d.name === doctorName || d.id === activeDocId);
         if (currentDoc) {
+          if (currentDoc.id && currentDoc.id !== activeDocId) {
+            setActiveDocId(currentDoc.id);
+          }
           if (currentDoc.office_name) setOfficeName(currentDoc.office_name);
           if (currentDoc.office?.target_tv) setTargetTv(currentDoc.office.target_tv);
         }
@@ -35,7 +39,8 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
   };
 
   const loadQueue = async () => {
-    const res = await fetchDoctorQueue(doctorId);
+    const targetId = activeDocId || doctorId;
+    const res = await fetchDoctorQueue(targetId);
     if (res?.success && res.queue) {
       setQueue(res.queue);
       const inProgress = res.queue.find(p => p.status === 'in_progress' || p.status === 'called');
@@ -62,7 +67,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
       socket.off('status-updated', handleStatusUpdated);
       clearInterval(interval);
     };
-  }, [doctorId]);
+  }, [doctorId, activeDocId]);
 
   const handleCall = async (item) => {
     setCallingId(item.id);

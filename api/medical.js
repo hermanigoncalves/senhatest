@@ -72,10 +72,29 @@ export default async function handler(req, res) {
 
       // A) Fila específica do médico
       if (view === 'doctor-queue' && doctorId) {
+        // Identifica o médico e seus possíveis IDs correspondentes
+        const { data: doc } = await supabaseAdmin
+          .from('doctors')
+          .select('id, name')
+          .eq('id', doctorId)
+          .maybeSingle();
+
+        let targetDoctorIds = [Number(doctorId)];
+
+        if (doc?.name) {
+          const { data: siblingDocs } = await supabaseAdmin
+            .from('doctors')
+            .select('id')
+            .ilike('name', doc.name);
+          if (siblingDocs && siblingDocs.length > 0) {
+            targetDoctorIds = Array.from(new Set([...targetDoctorIds, ...siblingDocs.map(d => d.id)]));
+          }
+        }
+
         const { data: queue, error } = await supabaseAdmin
           .from('patient_calls')
           .select('*')
-          .eq('doctor_id', doctorId)
+          .in('doctor_id', targetDoctorIds)
           .in('status', ['waiting', 'called', 'in_progress'])
           .order('id', { ascending: true });
 
