@@ -41,6 +41,21 @@ export function extractAuthUser(req) {
   return verifyAuthToken(authHeader);
 }
 
+export function normalizePersonName(name) {
+  if (!name || typeof name !== 'string') return '';
+  const lowerExceptions = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em']);
+  return name
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, index) => {
+      if (!word) return '';
+      if (index > 0 && lowerExceptions.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -755,6 +770,8 @@ export default async function handler(req, res) {
           return res.status(400).json({ success: false, message: 'Nome do paciente é obrigatório.' });
         }
 
+        const cleanPatientName = normalizePersonName(patientName);
+
         let resolvedTargetTv = targetTv || '1';
         let resolvedOffice = officeName || 'Consultório';
         let resolvedDoctorName = doctorName || 'Médico de Plantão';
@@ -779,7 +796,7 @@ export default async function handler(req, res) {
         try {
           if (patientId) {
             // Atualiza telefone e documento se foram informados
-            const updateObj = {};
+            const updateObj = { name: cleanPatientName };
             if (document && document.trim()) updateObj.document = document.trim();
             if (phone && phone.trim()) updateObj.phone = phone.trim();
             if (Object.keys(updateObj).length > 0) {
@@ -796,11 +813,11 @@ export default async function handler(req, res) {
                 .limit(1);
               if (found && found[0]) existingPat = found[0];
             }
-            if (!existingPat && patientName) {
+            if (!existingPat && cleanPatientName) {
               const { data: found } = await supabaseAdmin
                 .from('patients')
                 .select('*')
-                .ilike('name', patientName.trim())
+                .ilike('name', cleanPatientName)
                 .limit(1);
               if (found && found[0]) existingPat = found[0];
             }
@@ -808,7 +825,7 @@ export default async function handler(req, res) {
             if (existingPat) {
               patientId = existingPat.id;
               // Atualiza telefone ou documento se estavam vazios
-              const updateObj = {};
+              const updateObj = { name: cleanPatientName };
               if (!existingPat.document && document) updateObj.document = document.trim();
               if (!existingPat.phone && phone) updateObj.phone = phone.trim();
               if (Object.keys(updateObj).length > 0) {
@@ -818,7 +835,7 @@ export default async function handler(req, res) {
               const { data: pat } = await supabaseAdmin
                 .from('patients')
                 .insert([{
-                  name: patientName.trim(),
+                  name: cleanPatientName,
                   document: (document || '').trim() || null,
                   phone: (phone || '').trim() || null
                 }])
@@ -834,14 +851,14 @@ export default async function handler(req, res) {
           .from('patient_calls')
           .insert([{
             patient_id: patientId,
-            patient_name: patientName.trim(),
-            doctor_id: doctorId || null,
+            patient_name: cleanPatientName,
+            doctor_id: doctorId ? parseInt(doctorId, 10) : null,
             doctor_name: resolvedDoctorName,
             office_name: resolvedOffice,
             target_tv: resolvedTargetTv,
-            type: type,
+            type: type === 'Preferencial' ? 'Preferencial' : 'Normal',
             status: 'waiting',
-            created_by_user: createdBy || 'Recepção'
+            created_by_user: authUser.name || createdBy || 'Recepção'
           }])
           .select();
 

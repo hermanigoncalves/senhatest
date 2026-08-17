@@ -218,6 +218,25 @@ export function playChimeSound() {
 }
 
 /**
+ * Normaliza o nome do paciente para pronúncia fluida em PT-BR (Title Case),
+ * evitando que siglas acidentais como "HErmani" sejam soletradas como "Agá Ermani".
+ */
+export function normalizePersonName(name) {
+  if (!name || typeof name !== 'string') return '';
+  const lowerExceptions = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em']);
+  return name
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((word, index) => {
+      if (!word) return '';
+      if (index > 0 && lowerExceptions.has(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
+/**
  * Formata o texto para fala perfeitamente em português (senha e guichê)
  */
 export function formatTicketSpeech(ticket) {
@@ -225,7 +244,8 @@ export function formatTicketSpeech(ticket) {
 
   // Se houver nome de paciente nominal
   if (ticket.patientName || ticket.patient_name) {
-    const patient = (ticket.patientName || ticket.patient_name || '').trim();
+    const rawPatient = ticket.patientName || ticket.patient_name || '';
+    const patient = normalizePersonName(rawPatient);
     const office = (ticket.officeName || ticket.office_name || ticket.desk || 'Consultório').trim();
     const isPriority = ticket.type === 'Preferencial';
     const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
