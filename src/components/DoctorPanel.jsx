@@ -40,7 +40,7 @@ export default function DoctorPanel({ user, onLogout, onNavigateTv }) {
 
   const loadQueue = async () => {
     const targetId = activeDocId || doctorId;
-    const res = await fetchDoctorQueue(targetId);
+    const res = await fetchDoctorQueue(targetId, doctorName);
     if (res?.success && res.queue) {
       setQueue(res.queue);
       const inProgress = res.queue.find(p => p.status === 'in_progress' || p.status === 'called');

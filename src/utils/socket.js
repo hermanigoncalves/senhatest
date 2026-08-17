@@ -382,9 +382,11 @@ export async function registerPatientCall(payload) {
   }
 }
 
-export async function fetchDoctorQueue(doctorId) {
+export async function fetchDoctorQueue(doctorId, doctorName = '') {
   try {
-    const res = await fetchWithAuth(`/api/medical?view=doctor-queue&doctorId=${doctorId}`);
+    let url = `/api/medical?view=doctor-queue&doctorId=${encodeURIComponent(doctorId || '')}`;
+    if (doctorName) url += `&doctorName=${encodeURIComponent(doctorName)}`;
+    const res = await fetchWithAuth(url);
     if (res.ok) return await res.json();
     return { success: false, queue: [] };
   } catch (e) {

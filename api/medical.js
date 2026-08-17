@@ -71,32 +71,56 @@ export default async function handler(req, res) {
       const activeChannel = channel || tvId || 'all';
 
       // A) Fila específica do médico
-      if (view === 'doctor-queue' && doctorId) {
-        // Identifica o médico e seus possíveis IDs correspondentes
-        const { data: doc } = await supabaseAdmin
-          .from('doctors')
-          .select('id, name')
-          .eq('id', doctorId)
-          .maybeSingle();
+      if (view === 'doctor-queue') {
+        const queryDoctorId = doctorId ? Number(doctorId) : null;
+        const queryDoctorName = (req.query?.doctorName || req.query?.name || '').trim();
 
-        let targetDoctorIds = [Number(doctorId)];
+        let targetDoctorIds = [];
+        let targetNames = [];
 
-        if (doc?.name) {
+        if (queryDoctorId) {
+          targetDoctorIds.push(queryDoctorId);
+          const { data: doc } = await supabaseAdmin
+            .from('doctors')
+            .select('id, name')
+            .eq('id', queryDoctorId)
+            .maybeSingle();
+          if (doc?.name) {
+            targetNames.push(doc.name);
+          }
+        }
+
+        if (queryDoctorName) {
+          targetNames.push(queryDoctorName);
+        }
+
+        // Identifica médicos irmãos com mesmo nome
+        if (targetNames.length > 0) {
           const { data: siblingDocs } = await supabaseAdmin
             .from('doctors')
-            .select('id')
-            .ilike('name', doc.name);
+            .select('id, name')
+            .or(targetNames.map(n => `name.ilike.%${n}%`).join(','));
           if (siblingDocs && siblingDocs.length > 0) {
             targetDoctorIds = Array.from(new Set([...targetDoctorIds, ...siblingDocs.map(d => d.id)]));
           }
         }
 
-        const { data: queue, error } = await supabaseAdmin
+        let queryBuilder = supabaseAdmin
           .from('patient_calls')
           .select('*')
-          .in('doctor_id', targetDoctorIds)
-          .in('status', ['waiting', 'called', 'in_progress'])
-          .order('id', { ascending: true });
+          .in('status', ['waiting', 'called', 'in_progress']);
+
+        if (targetDoctorIds.length > 0 && targetNames.length > 0) {
+          const nameFilters = targetNames.map(n => `doctor_name.ilike.%${n}%`).join(',');
+          const idFilters = targetDoctorIds.map(i => `doctor_id.eq.${i}`).join(',');
+          queryBuilder = queryBuilder.or(`${idFilters},${nameFilters}`);
+        } else if (targetDoctorIds.length > 0) {
+          queryBuilder = queryBuilder.in('doctor_id', targetDoctorIds);
+        } else if (targetNames.length > 0) {
+          queryBuilder = queryBuilder.or(targetNames.map(n => `doctor_name.ilike.%${n}%`).join(','));
+        }
+
+        const { data: queue, error } = await queryBuilder.order('id', { ascending: true });
 
         if (error) throw error;
 
