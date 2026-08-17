@@ -211,11 +211,14 @@ export default async function handler(req, res) {
       // C2) CANAIS MÉDICOS: TV 01 ou TV 02 (Consultórios Específicos)
       // --------------------------------------------------------
       if (activeChannel === '1' || activeChannel === '2') {
+        // Apenas pacientes que foram EFETIVAMENTE chamados pelo médico (não em espera/waiting)
         const { data: calls } = await supabaseAdmin
           .from('patient_calls')
           .select('*')
           .in('target_tv', [activeChannel, 'all'])
-          .order('id', { ascending: false })
+          .in('status', ['called', 'in_progress', 'completed'])
+          .not('called_at', 'is', null)
+          .order('called_at', { ascending: false })
           .limit(15);
 
         let currentCall = null;
@@ -264,7 +267,9 @@ export default async function handler(req, res) {
       const { data: calls } = await supabaseAdmin
         .from('patient_calls')
         .select('*')
-        .order('id', { ascending: false })
+        .in('status', ['called', 'in_progress', 'completed'])
+        .not('called_at', 'is', null)
+        .order('called_at', { ascending: false })
         .limit(15);
 
       const { data: tickets } = await supabaseAdmin
@@ -844,6 +849,11 @@ export default async function handler(req, res) {
           isRepeat: false
         } : null;
 
+        if (ticket && req.io) {
+          req.io.emit('patient-called', ticket);
+          req.io.emit('ticket-called', ticket);
+        }
+
         return res.status(200).json({
           success: true,
           message: 'Chamada enviada para a TV correspondente.',
@@ -882,6 +892,11 @@ export default async function handler(req, res) {
           timestamp: formatBrasiliaTime(),
           isRepeat: true
         } : null;
+
+        if (ticket && req.io) {
+          req.io.emit('patient-called', ticket);
+          req.io.emit('ticket-called', ticket);
+        }
 
         return res.status(200).json({
           success: true,

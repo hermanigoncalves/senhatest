@@ -104,8 +104,14 @@ function getLocalIpAddresses() {
 
 app.use(express.json());
 
-app.all('/api/medical', (req, res) => medicalHandler(req, res));
-app.all('/api/ticket', (req, res) => ticketHandler(req, res));
+app.all('/api/medical', (req, res) => {
+  req.io = io;
+  return medicalHandler(req, res);
+});
+app.all('/api/ticket', (req, res) => {
+  req.io = io;
+  return ticketHandler(req, res);
+});
 
 app.get('/api/info', (req, res) => {
   res.json({
