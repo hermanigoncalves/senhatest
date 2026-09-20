@@ -1,0 +1,30 @@
+{
+  "project": "CMIP_FINANCIAL_REPASS_EXPORT",
+  "version": "2.1.0",
+  "tasks": [
+    {
+      "id": 1,
+      "name": "Expandir api/medical.js com fechamento de repasse em lote e filtros por período/médico",
+      "time": "5 min",
+      "verification": "node test_financial_export.js"
+    },
+    {
+      "id": 2,
+      "name": "Criar utilitário de exportação src/utils/exportFinancialReports.js (PDF formatado com cabeçalho/assinatura/Pix e CSV Excel UTF-8 BOM)",
+      "time": "5 min",
+      "verification": "node test_financial_export.js"
+    },
+    {
+      "id": 3,
+      "name": "Atualizar src/components/FinancialSplitPanel.jsx com seletores de período, botões de download Excel/PDF e modal de quitação",
+      "time": "5 min",
+      "verification": "npm run build"
+    },
+    {
+      "id": 4,
+      "name": "Executar bateria de testes determinísticos de regressão (Exit Code 0)",
+      "time": "3 min",
+      "verification": "node test_erp_integration.js"
+    }
+  ]
+}

@@ -1,0 +1,504 @@
+# 🏥 Especificação Técnica Formal & Plano de Implementação Ultra-Rigoroso
+## Sistema de Atendimento Médico CMIP — Arquitetura Multi-TV & Gestão Clínica
+
+> **Padrão de Engenharia de Elite:** *Spec-Driven Development* (Addy Osmani) & *Source-Driven Architecture*  
+> **Modelagem de Ameaças:** *Google Mantis Threat Model*  
+> **Padrão Visual & UX:** *Hallmark Anti-AI Slop Design System* (6 Eixos & 8 Estados de UI)  
+> **Qualidade & Prova:** *Tests as Proof* (Ciclo AAA e Reprodutores Determinísticos)
+
+---
+
+## 📑 Sumário Executivo
+
+1. [Objetivo Declarativo & Visão Geral](#1-objetivo-declarativo--visão-geral)
+2. [Inventário Factual do Código Existente](#2-inventário-factual-do-código-existente)
+3. [Arquitetura do Sistema & Roteamento Multi-TV](#3-arquitetura-do-sistema--roteamento-multi-tv)
+4. [Modelo de Dados Supabase (DDL & RLS)](#4-modelo-de-dados-supabase-ddl--rls)
+5. [Contratos de Interfaces & DTOs Formais](#5-contratos-de-interfaces--dtos-formais)
+6. [Especificação Detalhada de Componentes & Telas](#6-especificação-detalhada-de-componentes--telas)
+7. [Design System Hallmark & Mapeamento dos 8 Estados de UI](#7-design-system-hallmark--mapeamento-dos-8-estados-de-ui)
+8. [Modelagem de Ameaças Mantis (Threat Model)](#8-modelagem-de-ameaças-mantis-threat-model)
+9. [Decomposição Atômica de Tarefas & Estimativas](#9-decomposição-atômica-de-tarefas--estimativas)
+10. [Plano de Testes & Verificação Rigorosa (AAA)](#10-plano-de-testes--verificação-rigorosa-aaa)
+11. [Portão de Confirmação Inegociável](#11-portão-de-confirmação-inegociável)
+
+---
+
+## 1. Objetivo Declarativo & Visão Geral
+
+### 🎯 Objetivo Único
+Prover uma plataforma web completa de atendimento médico sem triagem para o **Centro Médico Integrado Piratininga (CMIP)**, permitindo à Recepção encaminhar pacientes diretamente para o médico selecionado, aos Médicos gerenciarem seus atendimentos e dispararem chamadas por voz (TTS em PT-BR) com roteamento seletivo para **Duas Telas de TV independentes (TV 01 e TV 02)** parametrizadas pelo Administrador no cadastro de cada consultório, e à Administração gerenciar o CRUD completo de Médicos, Consultórios, Usuários e Filas.
+
+### 📐 Limites de Escopo (In-Scope vs Out-of-Scope)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ ✅ IN-SCOPE (Fazer Agora - Entregáveis Críticos):                            │
+│ 1. Roteamento Multi-TV (TV 01 e TV 02 com filtro de áudio e visual)        │
+│ 2. CRUD Completo de Médicos no AdminPanel (Nome, CRM, UF, Especialidade,    │
+│    Consultório, Login automático, Status Ativo/Inativo, Exclusão)           │
+│ 3. CRUD de Consultórios com seleção de TV de Destino (TV 01, TV 02, Ambas) │
+│ 4. CRUD de Usuários com papéis ('admin', 'receptionist', 'doctor')          │
+│ 5. Recepção com listagem dinâmica de médicos ativos e envio em tempo real   │
+│ 6. Painel do Médico com fila ordenada (Preferencial no topo) e ciclo de vida│
+│ 7. Painel da TV com identificador dinâmico (?tv=1 / ?tv=2) e fila FIFO áudio│
+│ 8. APIs Serverless Vercel (api/medical.js) e Banco Supabase com RLS         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ ❌ OUT-OF-SCOPE (Fora de Escopo - Fases Posteriores):                       │
+│ • Integração SOAP/REST com prontuários eletrônicos legados (Tasy, MV Soul)  │
+│ • Emissão de guias de faturamento TISS/TUSS                                 │
+│ • Gateway de pagamento de consultas no totem                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. Inventário Factual do Código Existente
+
+Baseado na inspeção direta dos arquivos do projeto (`senha - Copia`):
+
+| # | Arquivo | Linhas | Papel Atual | Modificações Necessárias |
+|:---:|---|:---:|---|---|
+| 1 | [`src/App.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/App.jsx) | 33 | Roteamento básico de telas (`/tv`, `/tablet`, `/`) | Adicionar suporte para rotas de TV identificadas (`/tv`, `/tv?tv=1`, `/tv?tv=2`) |
+| 2 | [`src/components/AdminPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/AdminPanel.jsx) | 227 | Painel Admin (somente listagem estática e reset) | **Implementar CRUD completo de Médicos**, CRUD de Consultórios com seletor de TV, CRUD de Usuários e abas de navegação |
+| 3 | [`src/components/DoctorPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/DoctorPanel.jsx) | 327 | Painel do Médico (chamada, rechamada, status) | Integrar médico autenticado com seu consultório e TV de destino associada |
+| 4 | [`src/components/ReceptionPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/ReceptionPanel.jsx) | 327 | Cadastro de pacientes | Listar apenas médicos ativos e carregar consultório + TV vinculados dinamicamente |
+| 5 | [`src/components/LoginModal.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/LoginModal.jsx) | 166 | Login e atalhos de perfis | Integrar com tabela `users` do Supabase com fallback gracioso |
+| 6 | [`src/components/TvPanel.jsx`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/components/TvPanel.jsx) | 398 | Painel da TV e motor de áudio TTS | **Implementar filtro por `tvId` (`'1'`, `'2'`, `'all'`)**, badge visual da TV ativa e seletor rápido no topo |
+| 7 | [`api/medical.js`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/api/medical.js) | 338 | API Serverless Vercel | Adicionar ações: `list-doctors`, `create-doctor`, `update-doctor`, `delete-doctor`, `list-offices`, `create-office`, `update-office`, `delete-office`, `list-users`, `create-user`, `update-user` e suporte a `target_tv` no filtro da TV |
+| 8 | [`src/utils/socket.js`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/src/utils/socket.js) | 248 | Helpers de comunicação e fetch | Implementar funções client para os novos endpoints de médicos, salas, usuários e TV |
+| 9 | [`supabase_setup.sql`](file:///c:/Users/Hermani/Desktop/projetos/senha%20-%20Copia/supabase_setup.sql) | 127 | Script DDL Supabase | Atualizar com colunas `target_tv`, constraints, índices e seeds das TVs 01 e 02 |
+
+---
+
+## 3. Arquitetura do Sistema & Roteamento Multi-TV
+
+### 🔄 Fluxo de Roteamento da Chamada para a TV Correta
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as ⚙️ Administrador
+    actor Recepcao as 📋 Recepcionista
+    actor Medico as 👨‍⚕️ Dr. Carlos (Consultório 01)
+    participant API as 🌐 API Serverless (/api/medical)
+    participant DB as 🗄️ Supabase PostgreSQL
+    participant TV1 as 📺 TV 01 (Térreo)
+    participant TV2 as 📺 TV 02 (1º Andar)
+
+    Admin->>API: Configura Consultório 01 -> target_tv = '1'
+    Admin->>API: Configura Consultório 02 -> target_tv = '2'
+    API->>DB: Grava offices com target_tv
+
+    Recepcao->>API: Cadastra Paciente "João Silva" para Dr. Carlos (Cons. 01)
+    API->>DB: Insere em patient_calls com target_tv = '1', status = 'waiting'
+
+    Medico->>API: Clica em "CHAMAR PACIENTE"
+    API->>DB: Atualiza status = 'called', called_at = NOW()
+    
+    par Transmissão em Tempo Real
+        API-->>TV1: Evento de Chamada (target_tv: '1')
+        API-->>TV2: Evento de Chamada (target_tv: '1')
+    end
+
+    Note over TV1: TV 01 detecta target_tv == '1':<br/>1. Pisca em destaque (Glow)<br/>2. Toca Chime sonoro<br/>3. Fala: "Paciente João Silva, Consultório 01"
+    Note over TV2: TV 02 detecta target_tv == '1' e IGNORA:<br/>Não emite som e não altera a tela principal
+```
+
+---
+
+## 4. Modelo de Dados Supabase (DDL & RLS)
+
+```sql
+-- ============================================================
+-- DDL COMPLETO CMIP - ARQUITETURA MULTI-TV & CADASTRO DE MÉDICOS
+-- ============================================================
+
+-- 1. Tabela de Consultórios / Salas com TV de Destino
+CREATE TABLE IF NOT EXISTS public.offices (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(100) NOT NULL,
+  code VARCHAR(20) NOT NULL UNIQUE,
+  location VARCHAR(100),
+  target_tv VARCHAR(20) NOT NULL DEFAULT '1', -- '1' = TV 01, '2' = TV 02, 'all' = Ambas as TVs
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Tabela de Médicos (Corpo Clínico)
+CREATE TABLE IF NOT EXISTS public.doctors (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  crm VARCHAR(30) NOT NULL,
+  crm_uf VARCHAR(2) DEFAULT 'SP',
+  specialty VARCHAR(100) NOT NULL DEFAULT 'Clínica Geral',
+  phone VARCHAR(30),
+  email VARCHAR(120),
+  office_id BIGINT REFERENCES public.offices(id) ON DELETE SET NULL,
+  office_name VARCHAR(100),
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. Tabela de Usuários e Autenticação (ADMs, Recepção, Médicos)
+CREATE TABLE IF NOT EXISTS public.users (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  username VARCHAR(50) UNIQUE NOT NULL,
+  password VARCHAR(100) NOT NULL,
+  role VARCHAR(30) NOT NULL CHECK (role IN ('admin', 'receptionist', 'doctor')),
+  doctor_id BIGINT REFERENCES public.doctors(id) ON DELETE SET NULL,
+  active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 4. Tabela de Pacientes
+CREATE TABLE IF NOT EXISTS public.patients (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(150) NOT NULL,
+  document VARCHAR(30),
+  phone VARCHAR(30),
+  birth_date DATE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 5. Tabela de Fila e Chamadas Nominais com Destino de TV
+CREATE TABLE IF NOT EXISTS public.patient_calls (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  call_id INT NOT NULL DEFAULT 1,
+  patient_id BIGINT REFERENCES public.patients(id) ON DELETE SET NULL,
+  patient_name VARCHAR(150) NOT NULL,
+  doctor_id BIGINT REFERENCES public.doctors(id) ON DELETE SET NULL,
+  doctor_name VARCHAR(150) NOT NULL,
+  office_name VARCHAR(100) NOT NULL,
+  target_tv VARCHAR(20) NOT NULL DEFAULT '1', -- '1' = TV 01, '2' = TV 02, 'all' = Ambas
+  type VARCHAR(30) DEFAULT 'Normal' CHECK (type IN ('Normal', 'Preferencial', 'Retorno')),
+  status VARCHAR(30) DEFAULT 'waiting' CHECK (status IN ('waiting', 'called', 'in_progress', 'completed', 'absent', 'cancelled')),
+  created_by_user VARCHAR(100),
+  called_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. Tabela Legada de Senhas Numéricas (Totem)
+CREATE TABLE IF NOT EXISTS public.tickets (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  call_id INT NOT NULL DEFAULT 1,
+  number VARCHAR(20) NOT NULL,
+  raw_number INT NOT NULL,
+  desk VARCHAR(50) NOT NULL,
+  target_tv VARCHAR(20) DEFAULT '1',
+  type VARCHAR(20) DEFAULT 'Normal',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Índices Estratégicos para Resposta Sub-segundo
+CREATE INDEX IF NOT EXISTS idx_patient_calls_target_tv ON public.patient_calls (target_tv, status);
+CREATE INDEX IF NOT EXISTS idx_patient_calls_doctor_status ON public.patient_calls (doctor_id, status);
+CREATE INDEX IF NOT EXISTS idx_patient_calls_created_desc ON public.patient_calls (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_patient_calls_called_desc ON public.patient_calls (called_at DESC);
+CREATE INDEX IF NOT EXISTS idx_doctors_active ON public.doctors (active);
+CREATE INDEX IF NOT EXISTS idx_offices_active ON public.offices (active);
+CREATE INDEX IF NOT EXISTS idx_users_username ON public.users (username);
+
+-- 8. Row Level Security (RLS)
+ALTER TABLE public.offices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.doctors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.patients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.patient_calls ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.tickets ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Leitura Geral Offices" ON public.offices FOR SELECT USING (true);
+CREATE POLICY "Leitura Geral Doctors" ON public.doctors FOR SELECT USING (true);
+CREATE POLICY "Leitura Geral Users" ON public.users FOR SELECT USING (true);
+CREATE POLICY "Leitura Geral Patients" ON public.patients FOR SELECT USING (true);
+CREATE POLICY "Leitura Geral PatientCalls" ON public.patient_calls FOR SELECT USING (true);
+CREATE POLICY "Leitura Geral Tickets" ON public.tickets FOR SELECT USING (true);
+
+CREATE POLICY "Escrita Geral Offices" ON public.offices FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Escrita Geral Doctors" ON public.doctors FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Escrita Geral Users" ON public.users FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Escrita Geral Patients" ON public.patients FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Escrita Geral PatientCalls" ON public.patient_calls FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Escrita Geral Tickets" ON public.tickets FOR ALL USING (true) WITH CHECK (true);
+
+-- 9. Seeds Estruturados com TV 01 e TV 02
+INSERT INTO public.offices (name, code, location, target_tv)
+VALUES 
+  ('Consultório 01 - Clínica Geral', 'C01', 'Térreo - Ala A', '1'),
+  ('Consultório 02 - Cardiologia', 'C02', '1º Andar - Ala B', '2'),
+  ('Consultório 03 - Ortopedia', 'C03', 'Térreo - Ala A', '1'),
+  ('Consultório 04 - Pediatria', 'C04', '1º Andar - Ala B', '2')
+ON CONFLICT (code) DO UPDATE SET target_tv = EXCLUDED.target_tv;
+
+INSERT INTO public.doctors (name, crm, crm_uf, specialty, office_id, office_name)
+VALUES 
+  ('Dr. Carlos Eduardo', '12345', 'SP', 'Clínica Geral', 1, 'Consultório 01 - Clínica Geral'),
+  ('Dra. Helena Martins', '67890', 'SP', 'Cardiologia', 2, 'Consultório 02 - Cardiologia'),
+  ('Dr. Roberto Silva', '54321', 'SP', 'Ortopedia', 3, 'Consultório 03 - Ortopedia')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.users (name, username, password, role, doctor_id)
+VALUES 
+  ('Administrador Geral', 'admin', 'admin123', 'admin', NULL),
+  ('Recepção Principal', 'recepcao', 'recepcao123', 'receptionist', NULL),
+  ('Dr. Carlos Eduardo', 'dr_carlos', 'medico123', 'doctor', 1),
+  ('Dra. Helena Martins', 'dra_helena', 'medico123', 'doctor', 2)
+ON CONFLICT (username) DO NOTHING;
+```
+
+---
+
+## 5. Contratos de Interfaces & DTOs Formais
+
+```typescript
+// ==========================================
+// CONTRATOS DE DADOS TYPESCRIPT (DTOs)
+// ==========================================
+
+export type TargetTv = '1' | '2' | 'all';
+export type UserRole = 'admin' | 'receptionist' | 'doctor';
+export type PriorityType = 'Normal' | 'Preferencial' | 'Retorno';
+export type CallStatus = 'waiting' | 'called' | 'in_progress' | 'completed' | 'absent' | 'cancelled';
+
+export interface OfficeDTO {
+  id: number;
+  name: string;
+  code: string;
+  location?: string;
+  target_tv: TargetTv;
+  active: boolean;
+  created_at?: string;
+}
+
+export interface DoctorDTO {
+  id: number;
+  name: string;
+  crm: string;
+  crm_uf: string;
+  specialty: string;
+  phone?: string;
+  email?: string;
+  office_id?: number | null;
+  office_name?: string;
+  target_tv?: TargetTv;
+  active: boolean;
+  created_at?: string;
+}
+
+export interface UserDTO {
+  id: number;
+  name: string;
+  username: string;
+  role: UserRole;
+  doctor_id?: number | null;
+  doctor?: DoctorDTO | null;
+  active: boolean;
+}
+
+export interface PatientCallDTO {
+  id: number;
+  call_id: number;
+  patient_id?: number | null;
+  patient_name: string;
+  doctor_id?: number | null;
+  doctor_name: string;
+  office_name: string;
+  target_tv: TargetTv;
+  type: PriorityType;
+  status: CallStatus;
+  created_by_user?: string;
+  called_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+}
+
+export interface TvStateDTO {
+  success: boolean;
+  tvId: TargetTv;
+  currentTicket: {
+    id: number;
+    patientName: string;
+    doctorName: string;
+    officeName: string;
+    targetTv: TargetTv;
+    type: PriorityType;
+    status: CallStatus;
+    timestamp: string;
+    isRepeat?: boolean;
+  } | null;
+  history: Array<{
+    id: number;
+    patientName: string;
+    doctorName: string;
+    officeName: string;
+    targetTv: TargetTv;
+    type: PriorityType;
+    timestamp: string;
+  }>;
+}
+```
+
+---
+
+## 6. Especificação Detalhada de Componentes & Telas
+
+### A. Painel de Administração (`src/components/AdminPanel.jsx`)
+O AdminPanel será reestruturado em **4 Abas Principais**:
+1. **👨‍⚕️ Corpo Clínico (Médicos)**:
+   - Tabela rica com busca instantânea por Nome, CRM ou Especialidade.
+   - Botão **"+ Novo Médico"** que abre modal com os campos: *Nome Completo, CRM, UF (dropdown estados), Especialidade, Telefone, E-mail, Consultório Vinculado (com indicação da TV), Switch "Criar Usuário de Acesso" (com username e senha)*.
+   - Ações por linha: *Editar*, *Ativar/Desativar*, *Excluir*.
+2. **🚪 Consultórios & Salas**:
+   - Tabela de Consultórios com indicação visual da TV associada (`📺 TV 01`, `📺 TV 02`, `📺 Ambas`).
+   - Botão **"+ Novo Consultório"** com campos: *Nome da Sala, Código/Sigla (ex: C01), Localização (ex: Térreo Ala A), TV de Destino (Dropdown: TV 01, TV 02, Ambas as TVs)*.
+3. **👥 Usuários & Acessos**:
+   - Gestão de contas do sistema (`admin`, `receptionist`, `doctor`), com redefinição de senhas e vínculo com o cadastro do médico.
+4. **📊 Controle de Filas & Auditoria**:
+   - Visão em tempo real das chamadas do dia e botão protegido de **"Zerar Filas do Dia"** com modal de dupla confirmação.
+
+### B. Painel de Recepção (`src/components/ReceptionPanel.jsx`)
+- Carrega a lista atualizada de médicos ativos (`doctors.filter(d => d.active)`).
+- Ao selecionar um médico, exibe automaticamente o consultório e a TV onde a chamada ecoará (ex: *"Encaminhando para Dr. Carlos Eduardo — Consultório 01 (TV 01 - Térreo)"*).
+- Seletor de prioridade tátil: **Normal** vs **Preferencial (Idoso/PCD)**.
+- Adiciona o paciente instantaneamente na fila do médico com `target_tv` preenchido automaticamente a partir do consultório.
+
+### C. Painel Exclusivo do Médico (`src/components/DoctorPanel.jsx`)
+- Identifica o médico logado e o consultório ativo com sua respectiva TV de destino.
+- Fila com separação visual de prioridades e contagem regressiva de espera.
+- Ações:
+  - 🔔 **CHAMAR PACIENTE**: Atualiza status para `called` e dispara para a TV configurada no consultório.
+  - 🔄 **RECHAMAR**: Dispara novo som e voz na TV.
+  - 🩺 **EM ATENDIMENTO**: Muda status para `in_progress`.
+  - ✅ **FINALIZAR CONSULTA**: Marca como `completed` e libera o foco para o próximo.
+  - 🚫 **MARCAR AUSENTE**: Cancela/rebaixa o registro.
+
+### D. Painel das TVs (`src/components/TvPanel.jsx`)
+- **Detecção Automática da TV**:
+  - Lê parâmetro da URL: `?tv=1` ➔ TV 01 (Térreo); `?tv=2` ➔ TV 02 (1º Andar); `?tv=all` ➔ Todas.
+  - Se aberta sem parâmetro, permite selecionar no menu superior e grava no `localStorage.getItem('cmip_selected_tv')`.
+- **Filtro de Chamadas e Áudio**:
+  - A TV 01 só insere na fila de áudio (`audioQueueRef`) e no display chamadas com `target_tv === '1'` ou `target_tv === 'all'`.
+  - A TV 02 só insere na fila de áudio chamadas com `target_tv === '2'` ou `target_tv === 'all'`.
+- **Motor de Áudio FIFO Imune a Travamentos**:
+  - Chime sonoro estereofônico + Web Speech Synthesis em Português com fala humanizada:
+    > *"Atenção: Paciente [Nome], dirigir-se ao [Consultório], Doutor(a) [Médico]"*
+  - Overlay de desbloqueio com suporte a clique, toque e controle remoto Smart TV (Enter / Tecla OK).
+
+---
+
+## 7. Design System Hallmark & Mapeamento dos 8 Estados de UI
+
+### Paleta & Tokens Visuais (Anti-Slop)
+- `cmip-950` (`#07161e`) / `cmip-900` (`#0b232f`) — Fundo escuro imersivo medicinal com micro-padrão de cruzes.
+- `cmip-500` (`#10b981`) / `cmip-400` (`#34d399`) — Verde esmeralda de saúde e ação positiva.
+- `cyan-400` / `cyan-300` — Destaque de Consultórios e Salas.
+- `amber-400` / `amber-500` — Prioridade Preferencial e Alertas de Chamada.
+- `rose-500` / `rose-600` — Ações destrutivas e alertas críticos.
+
+### Matriz dos 8 Estados Obrigatórios de UI (57 Validation Gates)
+
+| Componente | Default | Hover / Active | Focus Visible | Loading / Shimmer | Disabled | Empty State | Error State |
+|---|---|---|---|---|---|---|---|
+| **Modal Cadastro Médico** | Grid 2 colunas com inputs estilizados | Borda iluminada em verde esmeralda | Anel ciano 2px offset | Spinner no botão "Salvando Médico..." | Botão desabilitado se Nome/CRM vazios | N/A | Alerta vermelho inline com mensagem PostgREST traduzida |
+| **Tabela de Médicos (Admin)** | Cards com CRM, especialidade, sala e TV | Leve elevação + realce de borda | Foco via Tab navegável | 3 esqueletos pulsantes com shimmer | Ações bloqueadas durante exclusão | Card "Nenhum médico cadastrado. Clique em + Novo Médico" | Banner de erro com botão "Recarregar" |
+| **Formulário Recepção** | Input com autofocus no Nome do Paciente | Botão "Cadastrar" com glow verde | Contorno de foco visível | Spinner "Encaminhando paciente..." | Botão opaco durante requisição | Card inicial com orientações do plantão | Toast vermelho com erro detalhado |
+| **Fila do Médico** | Lista de cards (Preferencial com estrela dourada) | Realce ao passar o cursor | Foco no botão Chamar | Shimmer a cada atualização de 3s | Botão desabilitado enquanto chama | "Nenhum paciente aguardando no momento" | Indicador de reconexão de rede |
+| **Painel da TV** | Tela cheia com paciente atual e badge da TV ativa | Interativo para tela cheia / seletor | Foco acessível via controle remoto | Pulso sutil no card | N/A | "Aguardando próxima chamada médica" | Badge vermelho "OFFLINE - Tentando reconectar" |
+
+---
+
+## 8. Modelagem de Ameaças Mantis (Threat Model)
+
+```
+┌────────────────────────────┐       ┌────────────────────────────┐
+│      UNTRUSTED CLIENT      │       │     TRUSTED SERVERLESS     │
+│   Recepção / Médicos / TV  │ ────► │     Vercel api/medical     │
+└────────────────────────────┘       └──────────────┬─────────────┘
+                                                    │
+                                                    ▼
+                                     ┌────────────────────────────┐
+                                     │     DATABASE BOUNDARY      │
+                                     │     Supabase PostgreSQL    │
+                                     └────────────────────────────┘
+```
+
+| ID | Ameaça / Vetor | Superfície de Ataque | Impacto | Severidade | Mitigação no Código |
+|:---:|---|---|---|:---:|---|
+| **SEC-01** | Chamada emitida para a TV incorreta | Parâmetro manipulado | Paciente vai para a sala errada | 🟠 Alta (P1) | O backend deriva o `target_tv` estritamente do `offices.target_tv` vinculado ao médico, ignorando sobrescrita arbitrária do client |
+| **SEC-02** | Race condition de chamada simultânea | 2 médicos chamando simultaneamente | Conflito na TV e fala sobreposta | 🟠 Alta (P1) | Processamento FIFO sequencial com trava `isProcessingQueueRef` e atualização atômica de status |
+| **SEC-03** | Modificação indevida de dados por não-admins | Endpoint `/api/medical` | Desconfiguração de salas ou médicos | 🔴 Crítica (P0) | Validação de credenciais e role `admin` em todas as ações de CRUD de médicos/consultórios |
+| **SEC-04** | Bloqueio de Autoplay em Smart TVs | Política de áudio do navegador | TV muda visual mas não emite som | 🟠 Alta (P1) | Banner de desbloqueio persistente + gatilho em eventos universais (`keydown`, `click`, `touchstart`, `pointerdown`) |
+
+---
+
+## 9. Decomposição Atômica de Tarefas & Estimativas
+
+```markdown
+1. [Backend & DDL] Atualizar DDL Supabase com coluna `target_tv` em `offices` e `patient_calls`, índices e seeds (~5 min)
+   → Arquivo: `supabase_setup.sql`
+   → Verificação: Executar no SQL Editor do Supabase e validar integridade e colunas.
+
+2. [Backend Serverless] Expandir `api/medical.js` com ações de CRUD de Médicos, Consultórios e suporte a `tvId` (~12 min)
+   → Arquivo: `api/medical.js`
+   → Ações: `list-doctors`, `create-doctor`, `update-doctor`, `delete-doctor`, `list-offices`, `create-office`, `update-office`, `delete-office`, `list-users`, `create-user`, `get-tv-state` com filtro `tvId`
+   → Verificação: Testar requisições POST com payloads válidos e inválidos.
+
+3. [Client API Helpers] Atualizar `src/utils/socket.js` com métodos de comunicação tipados (~5 min)
+   → Arquivo: `src/utils/socket.js`
+   → Funções: `fetchDoctorsList`, `createDoctor`, `updateDoctor`, `deleteDoctor`, `fetchOfficesList`, `createOffice`, `updateOffice`, `fetchTvFilteredState`
+   → Verificação: Testar respostas no console do navegador.
+
+4. [Admin Panel - CRUD de Médicos & Consultórios] Reformular `src/components/AdminPanel.jsx` (~20 min)
+   → Arquivo: `src/components/AdminPanel.jsx`
+   → Entregáveis:
+     - Aba de Médicos com formulário modal completo (Nome, CRM, UF, Especialidade, Sala, Login).
+     - Aba de Consultórios com seletor de TV de destino (TV 01, TV 02, Ambas).
+     - Aba de Usuários e abas de navegação no padrão Hallmark.
+   → Verificação: Cadastrar Dr. Carlos (Cons. 01 -> TV 1) e Dra. Helena (Cons. 02 -> TV 2); testar edição e desativação.
+
+5. [Recepção Panel - Integração Dinâmica] Atualizar `src/components/ReceptionPanel.jsx` (~8 min)
+   → Arquivo: `src/components/ReceptionPanel.jsx`
+   → Entregáveis: Listagem de médicos ativos com indicação de sala e TV associada; envio com `target_tv`.
+   → Verificação: Cadastrar paciente e confirmar gravação com `target_tv = '1'`.
+
+6. [TvPanel - Roteamento Multi-TV e Áudio FIFO] Atualizar `src/components/TvPanel.jsx` e `src/App.jsx` (~15 min)
+   → Arquivos: `src/components/TvPanel.jsx`, `src/App.jsx`
+   → Entregáveis:
+     - Leitura de parâmetro `?tv=1` e `?tv=2` e seletor manual no topo.
+     - Badge superior indicando `TV 01 - TÉRREO` ou `TV 02 - 1º ANDAR`.
+     - Filtro rigoroso: TV 01 só anuncia target_tv in ('1', 'all'); TV 02 só anuncia target_tv in ('2', 'all').
+   → Verificação: Abrir `/tv?tv=1` e `/tv?tv=2` em duas janelas e disparar chamadas para testar isolamento de som e imagem.
+
+7. [Validação de Ponta a Ponta & Build] Executar testes integrados e validação de build Vite (~5 min)
+   → Verificação: `npm run build` 100% verde sem erros de lint ou quebra de módulos.
+```
+
+---
+
+## 10. Plano de Testes & Verificação Rigorosa (AAA)
+
+### Matriz de Testes com Critério "Tests as Proof"
+
+| ID | Cenário de Teste | Padrão AAA (Arrange - Act - Assert) | Resultado Esperado |
+|:---:|---|---|---|
+| **TC-01** | **Cadastro de Consultório com TV 01** | **Arrange:** Admin abre aba Consultórios.<br/>**Act:** Preenche "Consultório 01", código "C01", seleciona "TV 01".<br/>**Assert:** Registro gravado com `target_tv = '1'`. | 🟢 Consultório criado com badge "TV 01" |
+| **TC-02** | **Cadastro de Consultório com TV 02** | **Arrange:** Admin abre aba Consultórios.<br/>**Act:** Preenche "Consultório 02", código "C02", seleciona "TV 02".<br/>**Assert:** Registro gravado com `target_tv = '2'`. | 🟢 Consultório criado com badge "TV 02" |
+| **TC-03** | **Cadastro Completo de Médico** | **Arrange:** Admin abre aba Médicos e clica em "+ Novo Médico".<br/>**Act:** Preenche Dr. Carlos, CRM 12345-SP, Clínica Geral, vincula ao Consultório 01.<br/>**Assert:** Médico salvo e listado na tabela com CRM e sala associada. | 🟢 Médico ativo disponível para a Recepção |
+| **TC-04** | **Encaminhamento pela Recepção** | **Arrange:** Recepcionista seleciona Dr. Carlos.<br/>**Act:** Cadastra "Roberto Alves", Normal.<br/>**Assert:** Chamada criada com status `waiting` e `target_tv = '1'`. | 🟢 Paciente entra na fila do Dr. Carlos |
+| **TC-05** | **Isolamento de Chamada na TV 01** | **Arrange:** Aba 1 aberta em `/tv?tv=1` e Aba 2 aberta em `/tv?tv=2`.<br/>**Act:** Dr. Carlos (Cons. 01 -> TV 1) clica em "CHAMAR PACIENTE".<br/>**Assert:** TV 01 exibe "Roberto Alves", toca Chime e fala. TV 02 permanece em espera sem emitir som. | 🟢 Isolamento 100% comprovado na TV 01 |
+| **TC-06** | **Isolamento de Chamada na TV 02** | **Arrange:** Mesmas abas abertas.<br/>**Act:** Dra. Helena (Cons. 02 -> TV 2) clica em "CHAMAR PACIENTE".<br/>**Assert:** TV 02 exibe o paciente e fala. TV 01 não é afetada. | 🟢 Isolamento 100% comprovado na TV 02 |
+| **TC-07** | **Chamada em Consultório "Ambas as TVs"** | **Arrange:** Consultório com `target_tv = 'all'`.<br/>**Act:** Médico chama paciente.<br/>**Assert:** Ambas as TVs (01 e 02) exibem e anunciam a chamada. | 🟢 Chamada geral ecoa em ambas as telas |
+
+---
+
+## 11. Portão de Confirmação Inegociável
+
+> [!IMPORTANT]
+> Este documento representa a **especificação técnica completa e formal** alinhada com as melhores práticas dos workflows Polishub (`planejar.md`, `revisar.md`, `test.md` e `diagnostico-ultra-rigoroso.md`).
+> 
+> **Aguardamos sua aprovação para iniciar a execução da Fase de Implementação!**

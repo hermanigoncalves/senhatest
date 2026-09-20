@@ -1,0 +1,2 @@
+import { test, expect } from '@playwright/test';
+test('admin não recebe Master na listagem comum',async({page})=>{test.skip(!process.env.E2E_ADMIN_EMAIL||!process.env.E2E_ADMIN_PASSWORD,'Credenciais ausentes');await page.goto('/');await page.getByPlaceholder('E-mail').fill(process.env.E2E_ADMIN_EMAIL);await page.getByPlaceholder('Senha').fill(process.env.E2E_ADMIN_PASSWORD);await page.getByRole('button',{name:'Entrar'}).click();await expect(page.getByRole('heading',{name:'Usuários'})).toBeVisible();await expect(page.getByText('master',{exact:true})).toHaveCount(0);});

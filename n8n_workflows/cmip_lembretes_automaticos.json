@@ -1,0 +1,168 @@
+{
+  "name": "CMIP - Lembrete Automático 24h Antes (Anti-Falta)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "cron-daily-8am",
+      "name": "Disparo Diário às 08:00 AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://seu-dominio-cmip.vercel.app/api/medical",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "view",
+              "value": "appointments"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-tomorrow-appointments",
+      "name": "Buscar Consultas de Amanhã",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst appointments = $input.item.json.appointments || [];\n\n// Calcula a data de amanhã (YYYY-MM-DD)\nconst tomorrow = new Date();\ntomorrow.setDate(tomorrow.getDate() + 1);\nconst tomorrowStr = tomorrow.toISOString().split('T')[0];\n\n// Filtra apenas agendamentos de amanhã que estão no status AGENDADO\nconst eligible = appointments.filter(a => {\n  return a.appointment_date === tomorrowStr && a.status === 'AGENDADO' && a.phone;\n});\n\nreturn eligible.map(app => ({\n  json: {\n    appointmentId: app.id,\n    patientName: app.name || 'Paciente',\n    phone: app.phone.replace(/\\D/g, ''),\n    doctorName: app.doctor_name || 'Especialista CMIP',\n    service: app.service || 'Consulta',\n    date: app.appointment_date,\n    time: app.appointment_time,\n    dateFormatted: app.appointment_date.split('-').reverse().join('/')\n  }\n}));\n"
+      },
+      "id": "filter-tomorrow",
+      "name": "Filtrar Pacientes Elegíveis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "split-batch",
+      "name": "Processar 1 por 1 (Anti-Bloqueio)",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        760,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.atendeexspress.com.br/message/sendText/Atendeexpress",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "CONFIGURE_IN_N8N_CREDENTIALS"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.phone }}\",\n  \"text\": \"Olá, *{{ $json.patientName }}*! 👋\\n\\nLembramos da sua consulta na *CMIP* agendada para amanhã ({{ $json.dateFormatted }}) às *{{ $json.time }}* com {{ $json.doctorName }}.\\n\\n📍 Endereço: Centro Médico Integrado Piratininga\\n\\nPor favor, responda:\\n*1* - Para CONFIRMAR presenca\\n*2* - Para REMARCAR ou CANCELAR\",\n  \"delay\": 1500\n}",
+        "options": {}
+      },
+      "id": "send-reminder-whatsapp",
+      "name": "Enviar Lembrete WhatsApp (Evolution Go)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Disparo Diário às 08:00 AM": {
+      "main": [
+        [
+          {
+            "node": "Buscar Consultas de Amanhã",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Consultas de Amanhã": {
+      "main": [
+        [
+          {
+            "node": "Filtrar Pacientes Elegíveis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar Pacientes Elegíveis": {
+      "main": [
+        [
+          {
+            "node": "Processar 1 por 1 (Anti-Bloqueio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processar 1 por 1 (Anti-Bloqueio)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Lembrete WhatsApp (Evolution Go)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Lembrete WhatsApp (Evolution Go)": {
+      "main": [
+        [
+          {
+            "node": "Processar 1 por 1 (Anti-Bloqueio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "project": "CMIP_CLINIC_ERP",
+  "version": "2.1.0",
+  "active_modules": [
+    "Evolution Go WhatsApp Live",
+    "Supabase Multi-Tenant RBAC",
+    "Split Engine (Centavos Inteiros)",
+    "Financial Repass Closeout & PDF/Excel Export",
+    "Multidisciplinary PEP JSONB",
+    "3-TV Isolated Realtime Display",
+    "n8n AI Scheduling & Reminders"
+  ]
+}

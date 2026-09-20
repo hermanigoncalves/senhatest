@@ -1,0 +1,212 @@
+{
+  "name": "CMIP - Agendador de Consultas com IA (Vick)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook-cmip-evolution",
+        "options": {}
+      },
+      "id": "webhook-evolution",
+      "name": "Webhook Evolution Go",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "webhook-cmip-evolution"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst body = $input.item.json.body || $input.item.json;\nconst data = body.data || body;\nconst key = data.key || {};\nconst message = data.message || {};\n\n// Ignora mensagens de grupos ou enviadas pela própria clínica\nconst isGroup = key.remoteJid?.includes('@g.us');\nconst fromMe = Boolean(key.fromMe);\n\nif (isGroup || fromMe) {\n  return []; // Não processa\n}\n\nconst remoteJid = key.remoteJid || '';\nconst phone = remoteJid.replace(/\\D/g, '');\nconst pushName = data.pushName || 'Paciente';\nconst messageType = data.messageType || (message.audioMessage ? 'audioMessage' : 'conversation');\n\nlet text = message.conversation || \n           message.extendedTextMessage?.text || \n           '';\n\nreturn [{\n  json: {\n    remoteJid,\n    phone,\n    pushName,\n    messageType,\n    text,\n    audioBase64: message.audioMessage ? data.base64 : null,\n    isAudio: Boolean(message.audioMessage)\n  }\n}];\n"
+      },
+      "id": "filter-validate",
+      "name": "Filtrar e Normalizar Entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isAudio }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-audio",
+      "name": "É Mensagem de Áudio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        540,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/audio/transcriptions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
+        "options": {}
+      },
+      "id": "whisper-transcribe",
+      "name": "Transcrever Áudio (Whisper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        760,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\n// Prepara o prompt e contexto para o agente de IA da CMIP\nconst inputData = $input.item.json;\nconst userMessage = inputData.text || $node[\"Transcrever Áudio (Whisper)\"]?.json?.text || \"Olá\";\n\nreturn [{\n  json: {\n    ...inputData,\n    userMessage,\n    systemPrompt: \"Você é a Vick, assistente virtual inteligente do Centro Médico Integrado Piratininga (CMIP). Seu objetivo é acolher os pacientes com empatia, tirar dúvidas sobre especialidades e agendar consultas. Sempre responda em Português do Brasil com clareza, objetividade e cordialidade.\"\n  }\n}];\n"
+      },
+      "id": "prepare-context",
+      "name": "Preparar Contexto CMIP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "model": "gpt-4o-mini",
+        "options": {
+          "systemMessage": "={{ $json.systemPrompt }}"
+        }
+      },
+      "id": "openai-model",
+      "name": "OpenAI Chat Model (Vick IA)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.atendeexspress.com.br/message/sendText/Atendeexpress",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "CONFIGURE_IN_N8N_CREDENTIALS"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"number\": \"{{ $json.phone }}\",\n  \"text\": \"{{ $json.response }}\",\n  \"delay\": 1200\n}",
+        "options": {}
+      },
+      "id": "send-evolution-reply",
+      "name": "Enviar Resposta WhatsApp (Evolution Go)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook Evolution Go": {
+      "main": [
+        [
+          {
+            "node": "Filtrar e Normalizar Entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar e Normalizar Entrada": {
+      "main": [
+        [
+          {
+            "node": "É Mensagem de Áudio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "É Mensagem de Áudio?": {
+      "main": [
+        [
+          {
+            "node": "Transcrever Áudio (Whisper)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar Contexto CMIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcrever Áudio (Whisper)": {
+      "main": [
+        [
+          {
+            "node": "Preparar Contexto CMIP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Contexto CMIP": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Chat Model (Vick IA)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model (Vick IA)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Resposta WhatsApp (Evolution Go)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
