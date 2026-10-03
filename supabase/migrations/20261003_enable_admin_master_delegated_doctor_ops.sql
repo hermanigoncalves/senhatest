@@ -1,0 +1,3 @@
+-- Applied to CMIPtst as migration enable_admin_master_delegated_doctor_ops on 2026-10-03.
+-- Source of truth for delegated Admin/Master medical operations remains 20260929_admin_master_operational_superusers.sql.
+-- This marker records that the operational RPC set was synchronized with CMIPtst.

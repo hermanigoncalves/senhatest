@@ -1,0 +1,6 @@
+-- Applied to CMIPtst on 2026-10-03.
+-- Admin and Master may use the global operational resource RPCs.
+-- The deployed definitions authorize both roles via:
+-- private.assert_roles(array['admin','master']::public.user_role[])
+-- Functions: master_dashboard, master_list_resources, master_save_office,
+-- master_save_service_point, master_save_display, master_update_doctor.

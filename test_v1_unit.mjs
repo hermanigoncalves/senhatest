@@ -23,7 +23,7 @@ assert.equal(hasCapability('doctor',CAPABILITIES.DOCTOR_DELEGATED),false);
 assert.equal(hasCapability('admin',CAPABILITIES.RECEPTION),true);
 assert.equal(hasCapability('admin',CAPABILITIES.RECEPTION_SUPERUSER),true);
 assert.equal(hasCapability('admin',CAPABILITIES.DOCTOR_DELEGATED),true);
-assert.equal(hasCapability('admin',CAPABILITIES.MASTER_ADMINISTRATION),false);
+assert.equal(hasCapability('admin',CAPABILITIES.MASTER_ADMINISTRATION),true);
 assert.equal(hasCapability('master',CAPABILITIES.RECEPTION),true);
 assert.equal(hasCapability('master',CAPABILITIES.RECEPTION_SUPERUSER),true);
 assert.equal(hasCapability('receptionist',CAPABILITIES.RECEPTION_SUPERUSER),false);

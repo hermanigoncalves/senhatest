@@ -66,8 +66,8 @@ export const cmipApi = {
   adminListUsers: () => rpc('admin_list_users'),
   adminUpdateUser: (id, changes = {}) => rpc('admin_update_user', { p_user_id: id, p_full_name: changes.full_name ?? null, p_role: changes.role ?? null, p_active: changes.active ?? null }),
   requestAdminPasswordReset: async (userId) => {
-    const { data, error, response } = await supabase.functions.invoke('admin-reset-password', {
-      body: { target_user_id: userId },
+    const { data, error, response } = await supabase.functions.invoke('master-user-admin', {
+      body: { action: 'reset_password', user_id: userId, temporary_password: 'CMIP123456' },
     });
     if (error) {
       const status = error.context?.status || response?.status;
