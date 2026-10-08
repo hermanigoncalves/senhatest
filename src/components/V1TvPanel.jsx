@@ -1,33 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Film, Maximize2, Monitor, Star, Stethoscope, Volume2, VolumeX, Wifi } from 'lucide-react';
+import { Clock, Film, Maximize2, Monitor, Stethoscope, Volume2, VolumeX, Wifi } from 'lucide-react';
 import { cmipApi } from '../utils/cmipApi';
 import { announceTicket, isAudioContextRunning, warmupAudio, checkTtsAvailability } from '../utils/audio';
-import { telemetry } from '../utils/telemetry';
+import { telemetry, latencyLog } from '../utils/telemetry';
+import { normalizeTvEvent as normalize } from '../utils/tvEvents';
 
-const VIDEOS = [
-  '/WhatsApp Video 2026-08-30 at 15.44.26.mp4',
-  '/WhatsApp Video 2026-08-30 at 15.44.26 (1).mp4'
-];
+const VIDEOS = ['/institucional-1.mp4', '/institucional-2.mp4'];
 
-const DEBUG_LATENCY = true;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-const normalize = (e) => (e ? {
-  id: e.event_key || (e.id ? `t${e.id}` : `t${Date.now()}`),
-  event_key: e.event_key || (e.id ? `t${e.id}` : `t${Date.now()}`),
-  kind: e.kind || 'ticket',
-  isRepeat: Boolean(e.is_recall || e.isRepeat),
-  number: e.display_number || e.number || '',
-  patientName: e.patient_name || e.patientName || '',
-  desk: e.destination || e.desk || e.officeName || 'Guichê',
-  officeName: e.destination || e.officeName || e.desk || 'Guichê',
-  t0_timestamp: e.t0_timestamp || null,
-  t3_timestamp: e.t3_timestamp || null,
-  source: e.source || 'unknown',
-  timestamp: e.at
-    ? new Date(e.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-    : (e.timestamp || new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }))
-} : null);
 
 export default function V1TvPanel({ slug }) {
   const [current, setCurrent] = useState(null);
@@ -49,6 +29,15 @@ export default function V1TvPanel({ slug }) {
   const seen = useRef(new Set());
   const announcementQueue = useRef([]);
   const announcementProcessing = useRef(false);
+  // Os callbacks de Realtime/polling são registrados uma única vez (useEffect [slug]) e guardam o valor do
+  // primeiro render; por isso o estado de ativação precisa de uma ref para ser lido de dentro da fila.
+  const activatedRef = useRef(false);
+  const loadSeq = useRef(0);
+
+  const markActivated = () => {
+    activatedRef.current = true;
+    setActivated(true);
+  };
 
   // Fila de Anúncio: Controla estritamente o card principal + áudio sincronizados
   const processAnnouncementQueue = async () => {
@@ -61,12 +50,12 @@ export default function V1TvPanel({ slug }) {
         if (!item) continue;
 
         // O card principal da TV é atualizado EXATAMENTE no momento em que seu anúncio começa
-        if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] visual-updated', performance.now(), item.event_key, item.number);
+        latencyLog('visual-updated', performance.now(), item.event_key, item.number);
         telemetry.mark(item.event_key, 'T6', {
           number: item.number,
           destination: item.desk,
           t0_timestamp: item.t0_timestamp,
-          source: item.source
+          source: item.source,
         });
 
         setCurrent(item);
@@ -77,23 +66,23 @@ export default function V1TvPanel({ slug }) {
             videoRef.current.pause();
           }
 
-          if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] bell-start', performance.now(), item.event_key);
+          latencyLog('bell-start', performance.now(), item.event_key);
 
           await Promise.race([
             announceTicket(item, item.desk, {
               onChimeStart: () => {
-                if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] bell-start', performance.now(), item.event_key);
+                latencyLog('bell-start', performance.now(), item.event_key);
                 telemetry.mark(item.event_key, 'T7', { t0_timestamp: item.t0_timestamp });
               },
               onSpeechStart: () => {
-                if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] speech-start', performance.now(), item.event_key);
+                latencyLog('speech-start', performance.now(), item.event_key);
                 telemetry.mark(item.event_key, 'T8', { t0_timestamp: item.t0_timestamp });
-              }
+              },
             }),
-            sleep(20000)
+            sleep(20000),
           ]);
 
-          if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] speech-end', performance.now(), item.event_key);
+          latencyLog('speech-end', performance.now(), item.event_key);
         } catch (e) {
           console.error('[TV audio]', e);
         }
@@ -103,7 +92,7 @@ export default function V1TvPanel({ slug }) {
           await sleep(120);
         } else {
           setCalling(false);
-          if (videoRef.current && activated) {
+          if (videoRef.current && activatedRef.current) {
             const p = videoRef.current.play();
             if (p && p.catch) p.catch(() => {});
           }
@@ -121,7 +110,7 @@ export default function V1TvPanel({ slug }) {
   const enqueue = (item, origin = 'unknown') => {
     if (!item || !item.event_key) return;
     if (seen.current.has(item.event_key)) {
-      if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] deduplication-ignored', item.event_key, origin);
+      latencyLog('deduplication-ignored', item.event_key, origin);
       return;
     }
 
@@ -147,8 +136,11 @@ export default function V1TvPanel({ slug }) {
 
   // Camada 2 & Carga Inicial: busca o estado público sanitizado do painel
   const load = async ({ announce = true, origin = 'polling' } = {}) => {
+    const mySeq = ++loadSeq.current;
     try {
       const s = await cmipApi.publicPanelState(slug);
+      // Uma resposta antiga não pode sobrescrever uma consulta mais recente.
+      if (mySeq !== loadSeq.current) return;
       if (!s) {
         setMissing(true);
         return;
@@ -165,16 +157,20 @@ export default function V1TvPanel({ slug }) {
         if (next) seen.current.add(next.event_key);
         setCurrent(next);
         setHistory(hist);
-        setVideoReady(true);
         return;
       }
 
       if (next && announce) enqueue(next, origin);
-      if (!next && !announcementProcessing.current && announcementQueue.current.length === 0) setCurrent(null);
+      if (!next && !announcementProcessing.current && announcementQueue.current.length === 0)
+        setCurrent(null);
       if (!announcementProcessing.current && announcementQueue.current.length === 0) setHistory(hist);
     } catch (e) {
+      if (mySeq !== loadSeq.current) return;
       console.error('[TV state]', e);
       setApiConnected(false);
+    } finally {
+      // Os vídeos institucionais não dependem de a primeira consulta ter dado certo.
+      setVideoReady(true);
     }
   };
 
@@ -183,7 +179,9 @@ export default function V1TvPanel({ slug }) {
     const tick = () => {
       const n = new Date();
       setTime(n.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
-      setDate(n.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }));
+      setDate(
+        n.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+      );
     };
     tick();
     const t = setInterval(tick, 1000);
@@ -195,10 +193,17 @@ export default function V1TvPanel({ slug }) {
       checkTtsAvailability().catch(() => {});
     }, 60000);
 
-    // 3. Auto-ativação caso já tenha sido autorizado nesta sessão da Smart TV
-    if (isAudioContextRunning()) {
-      setActivated(true);
-    }
+    // 3. Auto-ativação: o navegador só libera áudio automaticamente se a política de autoplay permitir
+    //    (ex.: Chrome em modo quiosque com --autoplay-policy=no-user-gesture-required). Caso contrário,
+    //    qualquer toque/tecla do controle remoto ativa o painel.
+    const autoActivateTimer = setTimeout(() => {
+      if (isAudioContextRunning()) markActivated();
+    }, 400);
+    const onFirstGesture = () => {
+      if (!activatedRef.current) activate();
+    };
+    window.addEventListener('keydown', onFirstGesture);
+    window.addEventListener('pointerdown', onFirstGesture);
 
     // 4. Carga inicial rápida (sem anunciar áudio do estado passado)
     load({ announce: false, origin: 'boot' });
@@ -207,11 +212,11 @@ export default function V1TvPanel({ slug }) {
     const off = cmipApi.subscribeDisplay(slug, {
       onBroadcast: (payload) => {
         if (!payload) return;
-        if (DEBUG_LATENCY) console.debug('[CMIP LATENCY] tv-event-received', performance.now(), payload.event_key, payload.display_number);
+        latencyLog('tv-event-received', performance.now(), payload.event_key, payload.display_number);
         telemetry.mark(payload.event_key, 'T4', {
           source: 'broadcast',
           t3_timestamp: payload.t3_timestamp,
-          t0_timestamp: payload.t0_timestamp
+          t0_timestamp: payload.t0_timestamp,
         });
         const item = normalize({ ...payload, source: 'broadcast' });
         if (item) {
@@ -219,13 +224,16 @@ export default function V1TvPanel({ slug }) {
         }
       },
       onRefresh: () => load({ announce: true, origin: 'postgres_changes' }),
-      onStatus: (s) => setRealtimeConnected(s)
+      onStatus: (s) => setRealtimeConnected(s),
     });
 
     // 6. Camada 3: Polling periódico de resiliência (10s como contingência pura)
     const poll = setInterval(() => load({ announce: true, origin: 'polling' }), 10000);
 
     return () => {
+      clearTimeout(autoActivateTimer);
+      window.removeEventListener('keydown', onFirstGesture);
+      window.removeEventListener('pointerdown', onFirstGesture);
       clearInterval(t);
       clearInterval(ttsProbeInterval);
       clearInterval(poll);
@@ -246,13 +254,8 @@ export default function V1TvPanel({ slug }) {
 
   const activate = async () => {
     warmupAudio();
-    setActivated(true);
+    markActivated();
     setMuted(true);
-    try {
-      if (typeof window !== 'undefined') {
-        window.sessionStorage?.setItem('cmip_tv_activated', 'true');
-      }
-    } catch {}
 
     if (videoRef.current) {
       try {
@@ -310,6 +313,7 @@ export default function V1TvPanel({ slug }) {
       {/* Botão de desbloqueio de áudio/vídeo/tela cheia para navegadores */}
       {!activated && (
         <button
+          autoFocus
           onClick={activate}
           className="absolute inset-0 z-50 bg-cmip-950/95 text-white grid place-items-center text-center p-8"
         >
@@ -358,9 +362,7 @@ export default function V1TvPanel({ slug }) {
           {/* Card Principal da Senha Chamada */}
           <div
             className={`flex-1 rounded-3xl p-4 md:p-5 flex flex-col justify-between items-center text-center glass-panel min-h-0 bg-cmip-900/70 border shadow-2xl transition-all ${
-              calling
-                ? 'animate-tv-glow border-cmip-400 bg-cmip-900/95 scale-[1.008]'
-                : 'border-cmip-600/30'
+              calling ? 'animate-tv-glow border-cmip-400 bg-cmip-900/95 scale-[1.008]' : 'border-cmip-600/30'
             }`}
           >
             <div className="w-full flex items-center justify-between">

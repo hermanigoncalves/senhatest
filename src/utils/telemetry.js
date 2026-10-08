@@ -18,6 +18,12 @@ const isDebugEnabled = () => {
 
 const timers = new Map();
 const recentReports = [];
+const MAX_TIMERS = 100;
+
+// Log de latência só em desenvolvimento ou com localStorage.cmip_debug = 'true' (TVs 24/7 não poluem o console).
+export const latencyLog = (...args) => {
+  if (isDebugEnabled()) console.debug('[CMIP LATENCY]', ...args);
+};
 
 export const telemetry = {
   mark(eventId, step, extra = {}) {
@@ -26,12 +32,14 @@ export const telemetry = {
     const wallNow = Date.now();
 
     if (!timers.has(eventId)) {
+      // Limite de memória: operações que nunca chegam a T8/FINISHED não acumulam para sempre.
+      while (timers.size >= MAX_TIMERS) timers.delete(timers.keys().next().value);
       timers.set(eventId, {
         createdAt: now,
         wallCreatedAt: extra.wallTime || wallNow,
         marks: {},
         wallMarks: {},
-        extra: {}
+        extra: {},
       });
     }
 
@@ -56,7 +64,9 @@ export const telemetry = {
 
     if (step === 'T4' && extra.t3_timestamp) {
       const realtimeNet = Math.max(0, wallNow - extra.t3_timestamp);
-      console.log(`📊 [CMIP Metric] [${eventId}] REALTIME_NETWORK (T4 - T3): ${realtimeNet}ms [source: ${extra.source || 'broadcast'}]`);
+      console.log(
+        `📊 [CMIP Metric] [${eventId}] REALTIME_NETWORK (T4 - T3): ${realtimeNet}ms [source: ${extra.source || 'broadcast'}]`
+      );
     }
 
     if (step === 'T6' && entry.marks.T5) {
@@ -101,8 +111,8 @@ export const telemetry = {
         QUEUE_WAIT: queueWait,
         CLICK_TO_TV: clickToTv,
         CLICK_TO_VISUAL: clickToVisual,
-        CLICK_TO_AUDIO: clickToAudio
-      }
+        CLICK_TO_AUDIO: clickToAudio,
+      },
     };
   },
 
@@ -113,5 +123,5 @@ export const telemetry = {
   clear() {
     timers.clear();
     recentReports.length = 0;
-  }
+  },
 };

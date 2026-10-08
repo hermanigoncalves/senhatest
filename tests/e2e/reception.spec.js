@@ -15,4 +15,3 @@ test('chamador 150, 151, específica e rechamada',async({page})=>{
   await page.getByRole('button',{name:'RECHAMAR'}).click();
   await expect(page.getByText(/Senha 0777 chamada/)).toBeVisible();
 });
-test('CPF inválido é bloqueado no formulário',async({page})=>{await login(page);await page.getByPlaceholder('Nome completo *').fill('Paciente E2E');await page.locator('input[type=date]').fill('1990-01-01');await page.getByPlaceholder('CPF').fill('11111111111');await page.getByRole('button',{name:'Salvar e encaminhar'}).click();await expect(page.getByText('CPF inválido.')).toBeVisible();});

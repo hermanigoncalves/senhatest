@@ -33,7 +33,10 @@ export function hasCapability(role, capability) {
 export function operationalModules(role) {
   const modules = [];
   if (hasCapability(role, CAPABILITIES.ADMINISTRATION)) {
-    modules.push({ id: 'administration', label: role === 'master' ? 'Administração Master' : 'Administração' });
+    modules.push({
+      id: 'administration',
+      label: role === 'master' ? 'Administração Master' : 'Administração',
+    });
   }
   if (hasCapability(role, CAPABILITIES.RECEPTION)) {
     modules.push({ id: 'reception', label: 'Recepção' });

@@ -1,3 +1,7 @@
+-- Nota: private.mask_public_patient_name e public.get_public_display_state também são definidas em
+-- 20260930_v1_runtime_hardening.sql. A repetição é intencional (reinstala o estado público no CMIPtst) e idempotente;
+-- a versão final da get_public_display_state está em 20261008120000_v1_review_fixes.sql.
+
 -- Restaura o estado público sanitizado das TVs no CMIPtst.
 -- Mantém get_display_state autenticado e expõe somente dados mínimos para anon.
 

@@ -21,14 +21,20 @@ test.describe('Fluxo Real de Autenticação CMIP (Sem Mocks)', () => {
   );
 
   test.afterEach(async ({ request }) => {
-    // Garante restauração determinística do usuário Leandro para senha temporária e must_change_password=true
+    // Restaura o usuário de teste: senha temporária + must_change_password=true (exige credenciais de Admin/Master).
+    if (!hasSuperuser) {
+      console.warn('Teardown ignorado: defina E2E_ADMIN_* ou E2E_MASTER_* para restaurar o usuário de teste.');
+      return;
+    }
     try {
-      await request.post(`${SUPABASE_URL}/functions/v1/admin-reset-password`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': PUBLISHABLE_KEY
-        },
-        data: { target_user_id: LEANDRO_UUID }
+      const login = await request.post(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        headers: { 'Content-Type': 'application/json', apikey: PUBLISHABLE_KEY },
+        data: { email: masterEmail || adminEmail, password: masterPassword || adminPassword },
+      });
+      const { access_token: token } = await login.json();
+      await request.post(`${SUPABASE_URL}/functions/v1/master-user-admin`, {
+        headers: { 'Content-Type': 'application/json', apikey: PUBLISHABLE_KEY, Authorization: `Bearer ${token}` },
+        data: { action: 'reset_password', user_id: LEANDRO_UUID, temporary_password: INITIAL_TEMP_PASSWORD },
       });
     } catch (e) {
       console.warn('Teardown reset falhou:', e.message);
@@ -185,16 +191,16 @@ test.describe('Fluxo Real de Autenticação CMIP (Sem Mocks)', () => {
 
     expect(token).toBeTruthy();
 
-    // 3. Tentar chamar a Edge Function admin-reset-password usando o token do Doctor
+    // 3. Tentar chamar a Edge Function master-user-admin usando o token do Doctor
     const resetAttemptStatus = await page.evaluate(async ({ supabaseUrl, pubKey, authToken }) => {
-      const resp = await fetch(`${supabaseUrl}/functions/v1/admin-reset-password`, {
+      const resp = await fetch(`${supabaseUrl}/functions/v1/master-user-admin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': pubKey,
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify({ target_user_id: '8abe09fb-405b-4ccf-83fd-a72928e3a28f' })
+        body: JSON.stringify({ action: 'reset_password', user_id: '8abe09fb-405b-4ccf-83fd-a72928e3a28f', temporary_password: 'CMIP123456' })
       });
       return resp.status;
     }, { supabaseUrl: SUPABASE_URL, pubKey: PUBLISHABLE_KEY, authToken: token });
@@ -233,9 +239,9 @@ test.describe('Fluxo Real de Autenticação CMIP (Sem Mocks)', () => {
     await expect(page.getByRole('heading', { name: 'Redefinir senha' })).toBeVisible();
     await page.screenshot({ path: 'evidences/08-admin-reset-modal.png' });
 
-    // Confirmar ação e capturar chamada real a admin-reset-password
+    // Confirmar ação e capturar chamada real a master-user-admin
     const [resetRes] = await Promise.all([
-      page.waitForResponse(res => res.url().includes('functions/v1/admin-reset-password')),
+      page.waitForResponse(res => res.url().includes('functions/v1/master-user-admin')),
       page.getByRole('button', { name: 'Confirmar redefinição' }).click()
     ]);
 
@@ -245,7 +251,7 @@ test.describe('Fluxo Real de Autenticação CMIP (Sem Mocks)', () => {
     expect(JSON.stringify(reqHeaders)).not.toContain('service_role');
 
     const resetData = await resetRes.json();
-    expect(resetData.success).toBe(true);
+    expect(resetData.ok).toBe(true);
 
     await expect(page.getByText('Senha redefinida com sucesso')).toBeVisible();
     await page.screenshot({ path: 'evidences/09-admin-reset-success.png' });

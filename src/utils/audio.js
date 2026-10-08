@@ -1,8 +1,11 @@
 // Motor de Áudio & Voz CMIP Original Restaurado e Blindado
 // Suporte a PC, Smart TV e Tablets (com SpeechSynthesis Nativo e Google TTS Online)
 
+import { isRemoteTtsPhraseAllowed } from './ttsPolicy.js';
+
 let audioCtx = null;
 let ptVoice = null;
+let ptVoiceLocal = null;
 let chimeAudioElement = null;
 
 function generateChimeDataUri() {
@@ -13,20 +16,19 @@ function generateChimeDataUri() {
 
   for (let i = 0; i < numSamples; i++) {
     const t = i / sampleRate;
-    let freq = 0;
-    let vol = 0;
+    let sample = 0;
 
+    // "Ding" (0 a 0.45s) e "Dong" (a partir de 0.35s) se sobrepõem 100ms, como no som original.
     if (t < 0.45) {
-      freq = 783.99; // "Ding"
-      vol = Math.max(0, 1 - t / 0.45) * 0.8;
-    } else if (t >= 0.35 && t < 1.2) {
+      sample += Math.sin(2 * Math.PI * 783.99 * t) * Math.max(0, 1 - t / 0.45) * 0.8;
+    }
+    if (t >= 0.35) {
       const t2 = t - 0.35;
-      freq = 659.25; // "Dong"
-      vol = Math.max(0, 1 - t2 / 0.85) * 0.9;
+      sample += Math.sin(2 * Math.PI * 659.25 * t) * Math.max(0, 1 - t2 / 0.85) * 0.9;
     }
 
-    const sample = Math.sin(2 * Math.PI * freq * t) * vol * 32767;
-    buffer[i] = Math.max(-32768, Math.min(32767, sample));
+    const scaled = sample * 0.7 * 32767;
+    buffer[i] = Math.max(-32768, Math.min(32767, scaled));
   }
 
   const wavHeader = new ArrayBuffer(44 + numSamples * 2);
@@ -60,21 +62,29 @@ function generateChimeDataUri() {
 
 export const chimeDataUri = generateChimeDataUri();
 
+const isPtVoice = (v) => Boolean(v.lang && /^pt([-_]|$)/i.test(v.lang));
+const PREFERRED_VOICE = /female|mulher|luciana|maria|francisca|fernanda|helena|vitoria|vitória/i;
+
+// Escolhe a melhor voz em português. Vozes "localService" rodam no aparelho; as demais (ex.: "Google português
+// do Brasil" no Chrome) podem enviar o texto pela internet, então só servem para frases sem nome de paciente.
+export function pickVoices(voices = []) {
+  const pt = voices.filter(isPtVoice);
+  const rank = (list) =>
+    list.find((v) => PREFERRED_VOICE.test(v.name)) ||
+    list.find((v) => /pt-BR|pt_BR/i.test(v.lang)) ||
+    list[0] ||
+    null;
+  const local = pt.filter((v) => v.localService === true);
+  return { local: rank(local), any: rank(pt) };
+}
+
 function loadVoices() {
   if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
   const voices = window.speechSynthesis.getVoices();
   if (!voices || voices.length === 0) return;
-
-  const ptVoices = voices.filter(v => v.lang && (v.lang.includes('pt-BR') || v.lang.includes('pt_BR') || v.lang.includes('pt') || v.lang.includes('PT')));
-
-  if (ptVoices.length > 0) {
-    const preferredVoice = ptVoices.find(v => 
-      /female|mulher|luciana|maria|francisca|fernanda|helena|vitoria|vitória|google/i.test(v.name)
-    );
-    ptVoice = preferredVoice || ptVoices[0];
-  } else if (voices.length > 0) {
-    ptVoice = voices[0];
-  }
+  const picked = pickVoices(voices);
+  ptVoiceLocal = picked.local;
+  ptVoice = picked.any || voices[0] || null;
 }
 
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
@@ -193,10 +203,19 @@ export async function playChimeSound() {
     osc2.start(now + 0.2);
     osc2.stop(now + 0.9);
 
-    await new Promise(resolve => setTimeout(resolve, 950));
+    await new Promise((resolve) => setTimeout(resolve, 950));
   } catch (e) {
     console.warn('[Chime Warning]', e);
   }
+}
+
+const FEMININE_PLACES =
+  /^(sala|recepção|recepcao|clínica|clinica|triagem|enfermaria|farmácia|farmacia|emergência|emergencia|ala|unidade)\b/i;
+
+// "dirigir-se ao Consultório 1" / "dirigir-se à Sala 3"
+export function destinationPhrase(place) {
+  const name = String(place || '').trim();
+  return `${FEMININE_PLACES.test(name) ? 'à' : 'ao'} ${name}`;
 }
 
 export function formatTextForSpeech(ticketOrNumber, desk) {
@@ -206,13 +225,14 @@ export function formatTextForSpeech(ticketOrNumber, desk) {
 
   if (ticketOrNumber && typeof ticketOrNumber === 'object') {
     number = ticketOrNumber.number || ticketOrNumber.rawNumber || '0';
-    targetDesk = ticketOrNumber.officeName || ticketOrNumber.office_name || ticketOrNumber.desk || desk || 'Guichê 01';
+    targetDesk =
+      ticketOrNumber.officeName || ticketOrNumber.office_name || ticketOrNumber.desk || desk || 'Guichê 01';
     isPriority = ticketOrNumber.type === 'Preferencial';
 
     if (ticketOrNumber.patientName || ticketOrNumber.patient_name) {
       const patient = (ticketOrNumber.patientName || ticketOrNumber.patient_name).trim();
       const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
-      return `${prefix}Paciente ${patient}, dirigir-se ao ${targetDesk}.`;
+      return `${prefix}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
     }
   } else {
     number = String(ticketOrNumber || '0');
@@ -241,13 +261,14 @@ export function formatTextForSpeech(ticketOrNumber, desk) {
 let isServerTtsAvailable = null; // null = não testado, false = indisponível, true = disponível
 let lastTtsFailureTime = 0;
 const TTS_RECOVERY_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutos de cooldown para novo teste
+// eslint-disable-next-line no-unused-vars
 let activeUtterance = null; // Previne GC prematuro no Chromium/Tizen
 
 export function getTtsStatus() {
   return {
     isServerTtsAvailable,
     lastTtsFailureTime,
-    inCooldown: isServerTtsAvailable === false && (Date.now() - lastTtsFailureTime) <= TTS_RECOVERY_COOLDOWN_MS
+    inCooldown: isServerTtsAvailable === false && Date.now() - lastTtsFailureTime <= TTS_RECOVERY_COOLDOWN_MS,
   };
 }
 
@@ -259,7 +280,7 @@ export function _setTtsAvailableForTest(val, failureTime = 0) {
 export async function checkTtsAvailability(forceProbe = false) {
   const now = Date.now();
   // Se falhou anteriormente mas já se passaram 5 minutos, permite novo teste (Half-Open)
-  if (isServerTtsAvailable === false && (now - lastTtsFailureTime) > TTS_RECOVERY_COOLDOWN_MS) {
+  if (isServerTtsAvailable === false && now - lastTtsFailureTime > TTS_RECOVERY_COOLDOWN_MS) {
     isServerTtsAvailable = null;
   }
 
@@ -288,6 +309,9 @@ export async function checkTtsAvailability(forceProbe = false) {
 
 export function speakTicketViaEndpoint(phrase) {
   return new Promise((resolve, reject) => {
+    if (!isRemoteTtsPhraseAllowed(phrase)) {
+      return reject(new Error('Frase com dados pessoais não pode usar TTS remoto'));
+    }
     if (isServerTtsAvailable === false) {
       return reject(new Error('TTS remoto desativado/indisponível'));
     }
@@ -339,7 +363,7 @@ export function speakTicketViaEndpoint(phrase) {
   });
 }
 
-export function speakTicketNative(phrase) {
+export function speakTicketNative(phrase, { localOnly = false } = {}) {
   return new Promise((resolve) => {
     if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
       return resolve();
@@ -350,8 +374,8 @@ export function speakTicketNative(phrase) {
       window.speechSynthesis.resume();
 
       if (!ptVoice) loadVoices();
-      const voices = window.speechSynthesis.getVoices();
-      const validPtVoice = ptVoice || (voices && voices.find(v => v.lang && (v.lang.includes('pt') || v.lang.includes('PT'))));
+      // Frase com nome de paciente: só voz instalada no aparelho. Sem voz local, fica apenas a campainha.
+      const validPtVoice = localOnly ? ptVoiceLocal : ptVoiceLocal || ptVoice;
 
       if (!validPtVoice) {
         return resolve();
@@ -390,7 +414,7 @@ export function speakTicketNative(phrase) {
 }
 
 export function prepareTtsAudio(phrase) {
-  if (typeof window === 'undefined' || isServerTtsAvailable === false) {
+  if (typeof window === 'undefined' || isServerTtsAvailable === false || !isRemoteTtsPhraseAllowed(phrase)) {
     return { audio: null, readyPromise: Promise.resolve(null) };
   }
   try {
@@ -463,18 +487,23 @@ export function playPreparedTts(audio, phrase) {
   });
 }
 
-export async function speakTicket(ticketOrNumber, desk, { onStart, preloadedAudio, readyPromise, phrase: directPhrase } = {}) {
+export async function speakTicket(
+  ticketOrNumber,
+  desk,
+  { onStart, preloadedAudio, readyPromise, phrase: directPhrase } = {}
+) {
   const phrase = directPhrase || formatTextForSpeech(ticketOrNumber, desk);
+  const remoteAllowed = isRemoteTtsPhraseAllowed(phrase);
   if (onStart) onStart();
 
   const now = Date.now();
   // Circuit breaker: se já passou o tempo de cooldown de 5 minutos, permite nova tentativa do TTS remoto
-  if (isServerTtsAvailable === false && (now - lastTtsFailureTime) > TTS_RECOVERY_COOLDOWN_MS) {
+  if (isServerTtsAvailable === false && now - lastTtsFailureTime > TTS_RECOVERY_COOLDOWN_MS) {
     isServerTtsAvailable = null;
   }
 
   // 1. Tenta usar o áudio pré-carregado em paralelo durante a campainha
-  if (isServerTtsAvailable !== false && readyPromise) {
+  if (remoteAllowed && isServerTtsAvailable !== false && readyPromise) {
     try {
       const audio = await readyPromise;
       if (audio) {
@@ -487,8 +516,8 @@ export async function speakTicket(ticketOrNumber, desk, { onStart, preloadedAudi
     }
   }
 
-  // 2. Tenta prioritariamente via endpoint remoto caso esteja disponível e responsivo
-  if (isServerTtsAvailable !== false) {
+  // 2. Tenta prioritariamente via endpoint remoto caso esteja disponível e responsivo (nunca com nomes)
+  if (remoteAllowed && isServerTtsAvailable !== false) {
     try {
       await speakTicketViaEndpoint(phrase);
       isServerTtsAvailable = true; // Restaura circuit breaker automaticamente em caso de sucesso
@@ -502,7 +531,7 @@ export async function speakTicket(ticketOrNumber, desk, { onStart, preloadedAudi
 
   // 3. Fallback imediato para voz nativa do navegador
   try {
-    await speakTicketNative(phrase);
+    await speakTicketNative(phrase, { localOnly: !remoteAllowed });
   } catch (nativeErr) {
     console.warn('[TTS Native Warning]', nativeErr);
   }
@@ -519,12 +548,11 @@ export async function announceTicket(ticketOrNumber, desk, { onChimeStart, onSpe
   await playChimeSound();
 
   // Pausa mínima de 60ms apenas para o decaimento acústico da onda senoidal sem silêncio artificial
-  await new Promise(r => setTimeout(r, 60));
+  await new Promise((r) => setTimeout(r, 60));
   await speakTicket(ticketOrNumber, desk, {
     onStart: onSpeechStart,
     preloadedAudio,
     readyPromise,
-    phrase
+    phrase,
   });
 }
-

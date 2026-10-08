@@ -1,6 +1,8 @@
+import './test_env.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { isValidCpf, formatTicket } from './src/utils/validation.js';
+import { readApp } from './test_helpers.mjs';
+import { isValidCpf, formatTicket, MIN_PASSWORD_LENGTH } from './src/utils/validation.js';
 assert.equal(formatTicket(150),'0150');
 assert.equal(formatTicket(1000),'1000');
 assert.equal(isValidCpf('529.982.247-25'),true);
@@ -9,7 +11,7 @@ assert.equal(isValidCpf('529.982.247-24'),false);
 import { classifyProfile } from './src/utils/profile.js';
 import { CAPABILITIES, hasCapability, operationalModules } from './src/utils/capabilities.js';
 import { buildUsernameCandidates, isValidUsername, normalizeUsername, parseLoginIdentifier, suggestUsername } from './src/utils/identity.js';
-import { cmipApi } from './src/utils/cmipApi.js';
+import { cmipApi, DEFAULT_TEMP_PASSWORD } from './src/utils/cmipApi.js';
 import { supabase } from './src/utils/supabaseClient.js';
 assert.equal(classifyProfile(null),'missing');
 assert.equal(classifyProfile({active:false,must_change_password:false,role:'doctor'}),'inactive');
@@ -51,8 +53,8 @@ const tvSource = fs.readFileSync(new URL('./src/components/V1TvPanel.jsx', impor
 const apiSource = fs.readFileSync(new URL('./src/utils/cmipApi.js', import.meta.url), 'utf8');
 assert(tvSource.includes('ATIVAR PAINEL'), 'TV deve exigir ativação explícita para desbloquear mídia');
 assert(tvSource.includes('announceTicket'), 'TV deve reutilizar o motor de áudio comprovado do sistema antigo');
-assert(apiSource.includes("table:'display_panels'"), 'TV deve usar sinal Realtime do display, sem expor eventos públicos brutos');
-const appSource = fs.readFileSync(new URL('./src/V1App.jsx', import.meta.url), 'utf8');
+assert(apiSource.includes("table: 'display_panels'"), 'TV deve usar sinal Realtime do display, sem expor eventos públicos brutos');
+const appSource = readApp();
 assert(appSource.includes('activeDisplayPanels'), 'Login deve listar painéis ativos dinamicamente');
 assert(apiSource.includes("list_active_display_panels"), 'API deve carregar TVs ativas via RPC pública');
 
@@ -70,7 +72,7 @@ console.log('V1 unit tests: OK');
 
 // Doctor availability / reception UX regressions.
 {
-  const app = fs.readFileSync(new URL('./src/V1App.jsx', import.meta.url), 'utf8');
+  const app = readApp();
   assert(apiSource.includes("list_available_doctors"), 'Reception must use reduced doctor availability RPC');
   assert(apiSource.includes("get_my_doctor_session"), 'Doctor UI must load its active session explicitly');
   assert(app.includes('Online •'), 'Doctor must show visible online/session state');
@@ -83,18 +85,18 @@ console.log('V1 unit tests: OK');
 
 // Doctor presence regression: availability requires heartbeat and reception re-evaluates timeout.
 {
-  const app = fs.readFileSync(new URL('./src/V1App.jsx', import.meta.url), 'utf8');
+  const app = readApp();
   const api = fs.readFileSync(new URL('./src/utils/cmipApi.js', import.meta.url), 'utf8');
   assert(api.includes("doctor_heartbeat"), 'Doctor frontend must send authenticated heartbeat');
   assert(api.includes("end_doctor_session"), 'Doctor logout must end active medical session');
-  assert(app.includes('setInterval(beat,15000)'), 'Doctor heartbeat interval must be 15 seconds');
-  assert(app.includes('setInterval(loadDoctors,15000)'), 'Reception must periodically re-evaluate doctor presence');
-  assert(app.includes("profile.role==='doctor'"), 'Shell logout must use doctor-specific immediate session shutdown');
+  assert(app.includes('createTicker(beat, 15000)'), 'Doctor heartbeat interval must be 15 seconds');
+  assert(app.includes('setInterval(loadDoctors, 15000)'), 'Reception must periodically re-evaluate doctor presence');
+  assert(app.includes("profile.role === 'doctor'"), 'Shell logout must use doctor-specific immediate session shutdown');
 }
 
 // Operational superuser regression: UI selection never replaces backend authorization.
 {
-  const app = fs.readFileSync(new URL('./src/V1App.jsx', import.meta.url), 'utf8');
+  const app = readApp();
   const migration = fs.readFileSync(new URL('./supabase/migrations/20260929_admin_master_operational_superusers.sql', import.meta.url), 'utf8');
   assert(app.includes('SuperuserWorkspace'), 'Admin/Master must use centralized operational navigation');
   assert(app.includes('Atuar como médico'), 'Delegated doctor selector must be visible');
@@ -102,8 +104,8 @@ console.log('V1 unit tests: OK');
   assert(app.includes('Redefinir senha'), 'Admin UI must expose the prepared password-reset action');
   assert(app.includes('Mostrar senhas'), 'Mandatory password-change UI must support show/hide');
   assert(app.includes('autoComplete="new-password"'), 'Mandatory password fields must use new-password semantics');
-  assert(app.indexOf("profileState==='password_change'") < app.indexOf('if(hasCapability(profile.role,CAPABILITIES.DOCTOR_SELF))'), 'Password-change gate must run before protected module routing');
-  assert(!app.includes('CMIP123456'), 'Initial password must never be hardcoded in the frontend');
+  assert(app.indexOf("profileState === 'password_change'") < app.indexOf('hasCapability(profile.role, CAPABILITIES.DOCTOR_SELF)'), 'Password-change gate must run before protected module routing');
+  assert(!app.includes('CMIP123456'), 'A senha padrão fica centralizada em cmipApi.js, não nos componentes');
   assert(app.includes('actingDoctor'), 'Doctor component must support explicit delegated context');
   assert(apiSource.includes('admin_doctor_queue_action'), 'Delegated queue actions must use a separate RPC');
   assert(apiSource.includes('admin_enqueue_patient'), 'Admin/Master reception enqueue must use a protected RPC');
@@ -253,19 +255,24 @@ console.log('V1 unit tests: OK');
     configurable: true
   });
 
-  // C.1: Sucesso
+  // C.1: Sucesso — a redefinição usa a senha padrão do CMIP (decisão de negócio) pela Edge Function administrativa
   mockInvoke = async (fn, opts) => {
     invokeCalls.push({ fn, opts });
-    return { data: { success: true }, error: null };
+    return { data: { ok: true }, error: null };
   };
 
   const res = await cmipApi.requestAdminPasswordReset('target-user-uuid-999');
-  assert.equal(invokeCalls.length, 1, 'Deve chamar admin-reset-password');
-  assert.equal(invokeCalls[0].fn, 'admin-reset-password');
-  assert.deepEqual(invokeCalls[0].opts.body, { target_user_id: 'target-user-uuid-999' });
-  assert.equal(invokeCalls[0].opts.body.password, undefined, 'Não deve enviar senha no reset');
-  assert(!JSON.stringify(invokeCalls[0].opts.body).includes('CMIP123456'), 'Não deve conter senha padrão no payload');
-  assert.equal(res.success, true);
+  assert.equal(invokeCalls.length, 1, 'Deve chamar master-user-admin');
+  assert.equal(invokeCalls[0].fn, 'master-user-admin');
+  assert.deepEqual(invokeCalls[0].opts.body, {
+    action: 'reset_password',
+    user_id: 'target-user-uuid-999',
+    temporary_password: DEFAULT_TEMP_PASSWORD,
+  });
+  assert.equal(DEFAULT_TEMP_PASSWORD, 'CMIP123456');
+  assert(DEFAULT_TEMP_PASSWORD.length >= MIN_PASSWORD_LENGTH, 'A senha padrão precisa cumprir o mínimo exigido pelo servidor');
+  assert.equal(res.ok, true);
+  assert.equal(res.temporary_password, DEFAULT_TEMP_PASSWORD, 'O admin precisa ver qual senha foi definida');
 
   // C.2: Erro 401
   mockInvoke = async () => ({
@@ -317,8 +324,8 @@ console.log('V1 unit tests: OK');
   assert.equal(classifyProfile({ active: true, must_change_password: true, role: 'admin' }), 'password_change', 'Admin com must_change_password=true é bloqueado');
   assert.equal(classifyProfile({ active: true, must_change_password: true, role: 'master' }), 'password_change', 'Master com must_change_password=true é bloqueado');
 
-  const app = fs.readFileSync(new URL('./src/V1App.jsx', import.meta.url), 'utf8');
-  assert(app.indexOf("profileState==='password_change'") < app.indexOf('if(hasCapability(profile.role,CAPABILITIES.DOCTOR_SELF))'), 'Password-change gate é executado antes do roteamento');
+  const app = readApp();
+  assert(app.indexOf("profileState === 'password_change'") < app.indexOf('hasCapability(profile.role, CAPABILITIES.DOCTOR_SELF)'), 'Password-change gate é executado antes do roteamento');
   assert(!app.includes('CMIP123456'), 'Bundle não deve conter a senha temporária hardcoded');
 }
 
@@ -333,3 +340,60 @@ console.log('All mandatory authentication tests: PASS');
   assert.match(delegatedSql, /where d\.active and p\.active and p\.role='doctor'/);
   assert.doesNotMatch(delegatedSql, /p\.active and not p\.must_change_password and p\.role='doctor'/);
 }
+
+// ==========================================
+// REVISÃO DE CÓDIGO 2026-10-08: infraestrutura, banco e Edge Function
+// ==========================================
+{
+  const read = (p) => fs.readFileSync(new URL(p, import.meta.url), 'utf8');
+  const sources = fs.readdirSync(new URL('./src/', import.meta.url), { recursive: true })
+    .filter((f) => /\.(js|jsx)$/.test(f))
+    .map((f) => [f, read(`./src/${f}`)]);
+
+  // Sem fallback silencioso para o projeto de teste dentro do código-fonte
+  for (const [f, content] of sources) {
+    assert(!content.includes('echypqclxnztvjicnkbf'), `${f}: URL do CMIPtst não pode estar fixa no código`);
+    assert(!content.includes('sb_publishable_'), `${f}: chave fixa não pode estar no código`);
+    assert(!/DEBUG_LATENCY\s*=\s*true/.test(content), `${f}: log de latência não pode estar sempre ligado`);
+  }
+  assert(read('./vite.config.js').includes('Build abortado'), 'Build deve falhar sem as variáveis do Supabase');
+
+  // TTS: a mesma política no servidor de produção e no de desenvolvimento
+  assert(read('./api/tts.js').includes('isRemoteTtsPhraseAllowed'), 'api/tts deve aplicar a política de frases');
+  assert(read('./api/tts.js').includes('422'), 'api/tts deve recusar texto não permitido');
+  assert(read('./vite.config.js').includes('isRemoteTtsPhraseAllowed'), 'servidor de desenvolvimento deve aplicar a mesma política');
+
+  // vercel.json: headers de segurança e rewrite que não captura /api
+  const vercel = JSON.parse(read('./vercel.json'));
+  const all = vercel.headers.find((h) => h.source === '/(.*)').headers.map((h) => h.key);
+  for (const key of ['Content-Security-Policy', 'X-Frame-Options', 'X-Content-Type-Options', 'Referrer-Policy']) {
+    assert(all.includes(key), `vercel.json deve definir ${key}`);
+  }
+  assert(vercel.rewrites.every((r) => r.source !== r.destination), 'rewrite não pode apontar para si mesmo');
+  assert(vercel.rewrites.some((r) => r.source.includes('(?!api/')), 'o fallback de SPA não pode capturar /api');
+
+  // Vídeos sem espaços/parênteses no nome
+  assert(fs.existsSync(new URL('./public/institucional-1.mp4', import.meta.url)));
+  assert(fs.existsSync(new URL('./public/institucional-2.mp4', import.meta.url)));
+
+  // Migrations: versões únicas e correções presentes
+  const versions = fs.readdirSync(new URL('./supabase/migrations/', import.meta.url)).map((f) => f.split('_')[0]);
+  assert.equal(new Set(versions).size, versions.length, 'duas migrations não podem ter a mesma versão');
+  const fixes = read('./supabase/migrations/20261008120000_v1_review_fixes.sql');
+  assert(fixes.includes('pg_advisory_xact_lock'), 'bloqueio de chamada duplicada deve usar trava por fila');
+  assert(fixes.includes('left join lateral'), 'fila delegada não pode duplicar linhas');
+  assert(fixes.includes('admin_user_audit') && fixes.includes('enable row level security'), 'auditoria com RLS');
+  assert(fixes.includes("array['event_key','id','kind','is_recall','display_number','patient_name','destination','at']"), 'TV pública usa lista de permissão de campos');
+  assert(!/grant\s+(insert|update|delete)[^;]*admin_user_audit/i.test(fixes), 'auditoria não é gravável pelo navegador');
+
+  // Edge Function: validações, ordem segura da redefinição e mensagens sem vazamento
+  const fn = read('./supabase/functions/master-user-admin/index.ts');
+  assert(fn.includes('USERNAME_RE'), 'servidor deve validar o formato do usuário');
+  assert(fn.includes('MIN_PASSWORD = 10'), 'mínimo de senha alinhado com a interface');
+  assert(fn.indexOf("update({ must_change_password: true") < fn.indexOf('updateUserById'), 'exigir troca de senha ANTES de alterar a senha');
+  assert(!fn.includes("error: e?.message || 'Erro interno'"), 'erro interno não deve devolver a mensagem crua');
+  assert(fn.includes('ALLOWED_ORIGINS'), 'CORS deve poder ser restrito por variável de ambiente');
+  assert(fn.includes("audit('reset_password'") && fn.includes("audit('create_user'"), 'operações administrativas auditadas');
+}
+
+console.log('Infrastructure review tests: PASS');

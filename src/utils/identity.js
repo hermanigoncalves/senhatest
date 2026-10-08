@@ -4,7 +4,6 @@ const USERNAME_PATTERN = /^[a-z0-9]+(?:\.[a-z0-9]+)*$/;
 const NAME_PARTICLES = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
 const NAME_SUFFIXES = new Set(['filho', 'junior', 'neto', 'sobrinho']);
 
-
 export function normalizeUsername(value = '') {
   return String(value)
     .normalize('NFD')
@@ -20,10 +19,12 @@ export function normalizeUsername(value = '') {
 
 export function isValidUsername(value = '') {
   const username = String(value);
-  return username.length >= USERNAME_MIN_LENGTH
-    && username.length <= USERNAME_MAX_LENGTH
-    && USERNAME_PATTERN.test(username)
-    && normalizeUsername(username) === username;
+  return (
+    username.length >= USERNAME_MIN_LENGTH &&
+    username.length <= USERNAME_MAX_LENGTH &&
+    USERNAME_PATTERN.test(username) &&
+    normalizeUsername(username) === username
+  );
 }
 
 export function buildUsernameCandidates(fullName = '') {
@@ -77,4 +78,3 @@ export function parseLoginIdentifier(identifier = '') {
   }
   return { kind: 'invalid' };
 }
-

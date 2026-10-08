@@ -1,7 +1,31 @@
 import { supabase } from './supabaseClient.js';
 import { PROFILE_COLUMNS } from './profile.js';
 import { parseLoginIdentifier } from './identity.js';
-const rpc = async (name, args = {}) => { const { data, error } = await supabase.rpc(name, args); if (error) throw error; return data; };
+// Senha temporária padrão definida em toda redefinição administrativa (decisão do CMIP).
+// O usuário é obrigado a trocá-la no próximo acesso.
+export const DEFAULT_TEMP_PASSWORD = 'CMIP123456';
+
+const rpc = async (name, args = {}) => {
+  const { data, error } = await supabase.rpc(name, args);
+  if (error) throw error;
+  return data;
+};
+
+// Leituras de tabela/view: erro de RLS ou de rede deve aparecer como erro, nunca como "lista vazia".
+const rows = async (query) => {
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+};
+
+// Lê a mensagem enviada pela Edge Function no corpo de uma resposta não-2xx (FunctionsHttpError).
+export async function functionErrorMessage(error) {
+  try {
+    const body = await error?.context?.clone?.().json();
+    if (body?.error && typeof body.error === 'string') return body.error;
+  } catch {}
+  return null;
+}
 export const cmipApi = {
   signIn: async (identifier, password) => {
     const parsed = parseLoginIdentifier(identifier);
@@ -15,7 +39,8 @@ export const cmipApi = {
         if (status === 401) throw new Error('Usuário ou senha inválidos.');
         if (status === 403) throw new Error('Acesso negado.');
         if (status === 500) throw new Error('Não foi possível autenticar no momento.');
-        if (error.name === 'FunctionsFetchError') throw new Error('Falha na conexão de rede. Verifique seu acesso e tente novamente.');
+        if (error.name === 'FunctionsFetchError')
+          throw new Error('Falha na conexão de rede. Verifique seu acesso e tente novamente.');
         throw new Error('Não foi possível autenticar no momento.');
       }
       if (!data?.success || !data?.session?.access_token || !data?.session?.refresh_token) {
@@ -30,32 +55,74 @@ export const cmipApi = {
       return { data: sessionData, error: null };
     }
     throw new Error('Informe um usuário válido.');
-  }, signOut: () => supabase.auth.signOut(), signOutDoctor: async () => { try { await rpc('end_doctor_session'); } finally { return supabase.auth.signOut(); } },
+  },
+  signOut: () => supabase.auth.signOut(),
+  signOutDoctor: async () => {
+    try {
+      await rpc('end_doctor_session');
+    } catch (e) {
+      // O logout não pode ficar preso se o encerramento da sessão falhar; o heartbeat expira em 45s.
+      console.warn('Falha ao encerrar sessão médica antes do logout', e);
+    }
+    return supabase.auth.signOut();
+  },
   profile: async () => {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser();
     if (userError) throw userError;
     if (!user) return null;
-    const { data, error } = await supabase.from('profiles').select(PROFILE_COLUMNS).eq('id', user.id).maybeSingle();
+    const { data, error } = await supabase
+      .from('profiles')
+      .select(PROFILE_COLUMNS)
+      .eq('id', user.id)
+      .maybeSingle();
     if (error) throw error;
     return data;
   },
-  servicePoints: async () => (await supabase.from('service_points').select('*').eq('active', true).order('name')).data || [],
-  callNextTicket: (id) => rpc('call_next_ticket', { p_service_point_id: id }), recallTicket: (id) => rpc('recall_ticket', { p_service_point_id: id }),
-  callSpecificTicket: (id, n) => rpc('call_specific_ticket', { p_service_point_id: id, p_number: Number(n) }), setNextTicket: (id, n) => rpc('set_next_ticket', { p_service_point_id: id, p_number: Number(n) }),
-  searchPatients: (term = '') => rpc('search_patients', { p_term: term }), savePatient: (patient) => rpc('save_patient', { p_patient: patient }),
+  servicePoints: () => rows(supabase.from('service_points').select('*').eq('active', true).order('name')),
+  callNextTicket: (id) => rpc('call_next_ticket', { p_service_point_id: id }),
+  recallTicket: (id) => rpc('recall_ticket', { p_service_point_id: id }),
+  callSpecificTicket: (id, n) => rpc('call_specific_ticket', { p_service_point_id: id, p_number: Number(n) }),
+  setNextTicket: (id, n) => rpc('set_next_ticket', { p_service_point_id: id, p_number: Number(n) }),
+  searchPatients: (term = '') => rpc('search_patients', { p_term: term }),
+  savePatient: (patient) => rpc('save_patient', { p_patient: patient }),
   availableDoctors: () => rpc('list_available_doctors'),
-  enqueue: (patientId, doctorId, delegated = false) => rpc(delegated ? 'admin_enqueue_patient' : 'enqueue_patient', { p_patient_id: patientId, p_doctor_id: doctorId }), transfer: (queueId, doctorId, reason) => rpc('transfer_patient', { p_queue_id: queueId, p_new_doctor_id: doctorId, p_reason: reason || null }),
-  receptionQueue: async () => (await supabase.from('reception_queue_view').select('*').order('created_at', { ascending: false }).limit(100)).data || [],
-  offices: () => rpc('available_offices'), doctorHeartbeat: () => rpc('doctor_heartbeat'), myDoctorSession: async () => { const rows = await rpc('get_my_doctor_session'); return rows?.[0] || null; }, startSession: (officeId) => rpc('start_doctor_session', { p_office_id: officeId }), endSession: () => rpc('end_doctor_session'),
-  doctorQueue: async () => (await supabase.from('doctor_queue_view').select('*').order('created_at')).data || [], queueAction: (queueId, action) => rpc('doctor_queue_action', { p_queue_id: queueId, p_action: action }),
+  enqueue: (patientId, doctorId, delegated = false) =>
+    rpc(delegated ? 'admin_enqueue_patient' : 'enqueue_patient', {
+      p_patient_id: patientId,
+      p_doctor_id: doctorId,
+    }),
+  transfer: (queueId, doctorId, reason) =>
+    rpc('transfer_patient', { p_queue_id: queueId, p_new_doctor_id: doctorId, p_reason: reason || null }),
+  receptionQueue: () =>
+    rows(
+      supabase.from('reception_queue_view').select('*').order('created_at', { ascending: false }).limit(100)
+    ),
+  offices: () => rpc('available_offices'),
+  doctorHeartbeat: () => rpc('doctor_heartbeat'),
+  myDoctorSession: async () => {
+    const rows = await rpc('get_my_doctor_session');
+    return rows?.[0] || null;
+  },
+  startSession: (officeId) => rpc('start_doctor_session', { p_office_id: officeId }),
+  endSession: () => rpc('end_doctor_session'),
+  doctorQueue: () => rows(supabase.from('doctor_queue_view').select('*').order('created_at')),
+  queueAction: (queueId, action) => rpc('doctor_queue_action', { p_queue_id: queueId, p_action: action }),
   delegatedDoctors: () => rpc('admin_list_delegable_doctors'),
   delegatedOffices: (doctorId) => rpc('admin_available_offices', { p_doctor_id: doctorId }),
   delegatedDoctorHeartbeat: (doctorId) => rpc('admin_doctor_heartbeat', { p_doctor_id: doctorId }),
-  delegatedDoctorSession: async (doctorId) => { const rows = await rpc('admin_get_doctor_session', { p_doctor_id: doctorId }); return rows?.[0] || null; },
-  startDelegatedDoctorSession: (doctorId, officeId) => rpc('admin_start_doctor_session', { p_doctor_id: doctorId, p_office_id: officeId }),
+  delegatedDoctorSession: async (doctorId) => {
+    const rows = await rpc('admin_get_doctor_session', { p_doctor_id: doctorId });
+    return rows?.[0] || null;
+  },
+  startDelegatedDoctorSession: (doctorId, officeId) =>
+    rpc('admin_start_doctor_session', { p_doctor_id: doctorId, p_office_id: officeId }),
   endDelegatedDoctorSession: (doctorId) => rpc('admin_end_doctor_session', { p_doctor_id: doctorId }),
   delegatedDoctorQueue: (doctorId) => rpc('admin_get_doctor_queue', { p_doctor_id: doctorId }),
-  delegatedDoctorQueueAction: (doctorId, queueId, action) => rpc('admin_doctor_queue_action', { p_doctor_id: doctorId, p_queue_id: queueId, p_action: action }),
+  delegatedDoctorQueueAction: (doctorId, queueId, action) =>
+    rpc('admin_doctor_queue_action', { p_doctor_id: doctorId, p_queue_id: queueId, p_action: action }),
   latestMedicalCallEvent: (queueId) => rpc('get_latest_medical_call_event', { p_queue_id: queueId }),
   panelState: (slug) => rpc('get_display_state', { p_panel_slug: slug }),
   activeDisplayPanels: () => rpc('list_active_display_panels'),
@@ -64,10 +131,16 @@ export const cmipApi = {
   completeFirstPasswordChange: () => rpc('complete_first_password_change'),
   updateOwnPassword: (password) => supabase.auth.updateUser({ password }),
   adminListUsers: () => rpc('admin_list_users'),
-  adminUpdateUser: (id, changes = {}) => rpc('admin_update_user', { p_user_id: id, p_full_name: changes.full_name ?? null, p_role: changes.role ?? null, p_active: changes.active ?? null }),
+  adminUpdateUser: (id, changes = {}) =>
+    rpc('admin_update_user', {
+      p_user_id: id,
+      p_full_name: changes.full_name ?? null,
+      p_role: changes.role ?? null,
+      p_active: changes.active ?? null,
+    }),
   requestAdminPasswordReset: async (userId) => {
     const { data, error, response } = await supabase.functions.invoke('master-user-admin', {
-      body: { action: 'reset_password', user_id: userId, temporary_password: 'CMIP123456' },
+      body: { action: 'reset_password', user_id: userId, temporary_password: DEFAULT_TEMP_PASSWORD },
     });
     if (error) {
       const status = error.context?.status || response?.status;
@@ -75,20 +148,96 @@ export const cmipApi = {
       if (status === 403) throw new Error('Você não tem permissão para redefinir a senha deste usuário.');
       if (status === 404) throw new Error('Usuário não encontrado.');
       if (status === 500) throw new Error('Não foi possível redefinir a senha.');
-      if (error.name === 'FunctionsFetchError') throw new Error('Falha na conexão de rede. Verifique seu acesso e tente novamente.');
-      throw new Error('Não foi possível redefinir a senha.');
+      if (error.name === 'FunctionsFetchError')
+        throw new Error('Falha na conexão de rede. Verifique seu acesso e tente novamente.');
+      throw new Error((await functionErrorMessage(error)) || 'Não foi possível redefinir a senha.');
+    }
+    if (data?.error) throw new Error(data.error);
+    return { ...data, temporary_password: DEFAULT_TEMP_PASSWORD };
+  },
+  masterDashboard: () => rpc('master_dashboard'),
+  masterResources: () => rpc('master_list_resources'),
+  masterSaveOffice: (x) =>
+    rpc('master_save_office', {
+      p_id: x.id || null,
+      p_name: x.name,
+      p_code: x.code || null,
+      p_active: x.active !== false,
+    }),
+  masterSaveServicePoint: (x) =>
+    rpc('master_save_service_point', {
+      p_id: x.id || null,
+      p_name: x.name,
+      p_code: x.code,
+      p_active: x.active !== false,
+    }),
+  masterSaveDisplay: (x) =>
+    rpc('master_save_display', {
+      p_id: x.id || null,
+      p_name: x.name,
+      p_code: x.code,
+      p_description: x.description || null,
+      p_active: x.active !== false,
+      p_office_ids: x.office_ids || [],
+      p_service_point_ids: x.service_point_ids || [],
+    }),
+  masterUpdateDoctor: (x) =>
+    rpc('master_update_doctor', {
+      p_profile_id: x.profile_id,
+      p_crm: x.crm || null,
+      p_specialty: x.specialty || null,
+      p_active: x.active !== false,
+    }),
+  masterUserAdmin: async (payload) => {
+    const { data, error } = await supabase.functions.invoke('master-user-admin', { body: payload });
+    if (error) {
+      const status = error.context?.status;
+      if (status === 401) throw new Error('Sua sessão expirou. Entre novamente.');
+      if (status === 403) throw new Error('Você não tem permissão para esta operação.');
+      if (error.name === 'FunctionsFetchError')
+        throw new Error('Falha na conexão de rede. Verifique seu acesso e tente novamente.');
+      // Ex.: 400 "Dados inválidos" / "A user with this email address has already been registered".
+      throw new Error((await functionErrorMessage(error)) || 'Não foi possível concluir a operação.');
     }
     if (data?.error) throw new Error(data.error);
     return data;
   },
-  masterDashboard: () => rpc('master_dashboard'),
-  masterResources: () => rpc('master_list_resources'),
-  masterSaveOffice: (x) => rpc('master_save_office', { p_id:x.id||null,p_name:x.name,p_code:x.code||null,p_active:x.active!==false }),
-  masterSaveServicePoint: (x) => rpc('master_save_service_point', { p_id:x.id||null,p_name:x.name,p_code:x.code,p_active:x.active!==false }),
-  masterSaveDisplay: (x) => rpc('master_save_display', { p_id:x.id||null,p_name:x.name,p_code:x.code,p_description:x.description||null,p_active:x.active!==false,p_office_ids:x.office_ids||[],p_service_point_ids:x.service_point_ids||[] }),
-  masterUpdateDoctor: (x) => rpc('master_update_doctor', { p_profile_id:x.profile_id,p_crm:x.crm||null,p_specialty:x.specialty||null,p_active:x.active!==false }),
-  masterUserAdmin: async (payload) => { const { data, error } = await supabase.functions.invoke('master-user-admin',{body:payload}); if(error) throw error; if(data?.error) throw new Error(data.error); return data; },
-  subscribe: (name, tables, refresh) => { const channel = supabase.channel(name); tables.forEach((table) => channel.on('postgres_changes', { event: '*', schema: 'public', table }, refresh)); channel.subscribe((status) => { if (status === 'SUBSCRIBED') refresh(); if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setTimeout(refresh, 750); }); return () => supabase.removeChannel(channel); },
+  // Eventos em rajada (várias tabelas, vários eventos) viram uma única atualização.
+  subscribe: (name, tables, refresh, { debounceMs = 150 } = {}) => {
+    const channel = supabase.channel(name);
+    const timers = new Set();
+    let disposed = false;
+    const later = (fn, ms) => {
+      const t = setTimeout(() => {
+        timers.delete(t);
+        if (!disposed) fn();
+      }, ms);
+      timers.add(t);
+    };
+    let pending = null;
+    const onChange = () => {
+      if (pending) return;
+      pending = true;
+      later(() => {
+        pending = null;
+        refresh();
+      }, debounceMs);
+    };
+    tables.forEach((table) =>
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, onChange)
+    );
+    channel.subscribe((status) => {
+      if (disposed) return;
+      if (status === 'SUBSCRIBED') refresh();
+      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') later(refresh, 750);
+    });
+    return () => {
+      disposed = true;
+      timers.forEach(clearTimeout);
+      timers.clear();
+      supabase.removeChannel(channel);
+    };
+  },
   _broadcastChannels: new Map(),
   getReadyBroadcastChannel: async (slug) => {
     if (!slug) return null;
@@ -118,10 +267,7 @@ export const cmipApi = {
 
     try {
       // Aguarda no máximo 100ms caso o canal esteja terminando de conectar, sem travar o chamador
-      await Promise.race([
-        entry.promise,
-        new Promise((resolve) => setTimeout(() => resolve(false), 100))
-      ]);
+      await Promise.race([entry.promise, new Promise((resolve) => setTimeout(() => resolve(false), 100))]);
     } catch {}
 
     return entry.channel;
@@ -133,7 +279,7 @@ export const cmipApi = {
       const result = await channel.send({
         type: 'broadcast',
         event: 'ticket-called',
-        payload
+        payload,
       });
       return result === 'ok';
     } catch (err) {
@@ -142,7 +288,7 @@ export const cmipApi = {
     }
   },
   cleanupBroadcastChannels: () => {
-    for (const [slug, entry] of cmipApi._broadcastChannels.entries()) {
+    for (const entry of cmipApi._broadcastChannels.values()) {
       try {
         if (entry.channel) {
           supabase.removeChannel(entry.channel);
@@ -193,19 +339,24 @@ export const cmipApi = {
     const isOptions = typeof refreshOrOptions === 'object' && refreshOrOptions !== null;
     const onRefresh = isOptions ? refreshOrOptions.onRefresh : refreshOrOptions;
     const onBroadcast = isOptions ? refreshOrOptions.onBroadcast : null;
-    const onStatus = isOptions ? (refreshOrOptions.onStatus || statusCb) : statusCb;
+    const onStatus = isOptions ? refreshOrOptions.onStatus || statusCb : statusCb;
 
-    const channel = supabase.channel(`display-${slug}`)
+    const channel = supabase
+      .channel(`display-${slug}`)
       .on('broadcast', { event: 'ticket-called' }, ({ payload }) => {
         if (onBroadcast && payload) onBroadcast(payload);
       })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table:'display_panels', filter: `code=eq.${slug}` }, () => {
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'display_panels', filter: `code=eq.${slug}` },
+        () => {
+          if (onRefresh) onRefresh();
+        }
+      )
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'ticket_calls' }, () => {
         if (onRefresh) onRefresh();
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table:'ticket_calls' }, () => {
-        if (onRefresh) onRefresh();
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table:'patient_calls' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'patient_calls' }, () => {
         if (onRefresh) onRefresh();
       });
 
@@ -220,5 +371,3 @@ export const cmipApi = {
     return () => supabase.removeChannel(channel);
   },
 };
-
-
