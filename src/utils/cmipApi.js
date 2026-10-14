@@ -1,6 +1,7 @@
 import { supabase } from './supabaseClient.js';
 import { PROFILE_COLUMNS } from './profile.js';
 import { parseLoginIdentifier } from './identity.js';
+import { MAX_TICKET_NUMBER, TICKET_PATIENT_BIRTH_DATE, ticketPatientName } from './ticketPatient.js';
 // Senha temporária padrão definida em toda redefinição administrativa (decisão do CMIP).
 // O usuário é obrigado a trocá-la no próximo acesso.
 export const DEFAULT_TEMP_PASSWORD = 'CMIP123456';
@@ -86,6 +87,9 @@ export const cmipApi = {
   recallTicket: (id) => rpc('recall_ticket', { p_service_point_id: id }),
   callSpecificTicket: (id, n) => rpc('call_specific_ticket', { p_service_point_id: id, p_number: Number(n) }),
   setNextTicket: (id, n) => rpc('set_next_ticket', { p_service_point_id: id, p_number: Number(n) }),
+  // Admin/Master: define a próxima senha E apaga o histórico de chamadas do guichê (irreversível).
+  resetTicketSequence: (id, n) =>
+    rpc('reset_ticket_sequence', { p_service_point_id: id, p_number: Number(n) }),
   searchPatients: (term = '') => rpc('search_patients', { p_term: term }),
   savePatient: (patient) => rpc('save_patient', { p_patient: patient }),
   availableDoctors: () => rpc('list_available_doctors'),
@@ -94,6 +98,17 @@ export const cmipApi = {
       p_patient_id: patientId,
       p_doctor_id: doctorId,
     }),
+  // Encaminha uma senha (sem cadastro): reaproveita ou cria o paciente-senha "SENHA-0045" e o coloca na fila.
+  enqueueByTicket: async (number, doctorId, delegated = false) => {
+    const name = ticketPatientName(number);
+    if (!name) throw new Error(`Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`);
+    const found = (await cmipApi.searchPatients(name)) || [];
+    const patient =
+      found.find((p) => String(p.full_name).toUpperCase() === name) ||
+      (await cmipApi.savePatient({ full_name: name, birth_date: TICKET_PATIENT_BIRTH_DATE, cpf: null }));
+    await cmipApi.enqueue(patient.id, doctorId, delegated);
+    return { ...patient, full_name: name };
+  },
   transfer: (queueId, doctorId, reason) =>
     rpc('transfer_patient', { p_queue_id: queueId, p_new_doctor_id: doctorId, p_reason: reason || null }),
   receptionQueue: () =>

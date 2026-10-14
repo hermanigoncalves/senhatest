@@ -7,7 +7,8 @@ import { Button, Field, Card, err } from './ui';
 // Painel usado apenas quando o guichê ainda não tem nenhuma TV vinculada.
 const DEFAULT_PANEL = 'recepcao';
 
-export function TicketCaller() {
+// canResetHistory: Admin/Master. Ao definir a senha inicial, o histórico de chamadas do guichê também é apagado.
+export function TicketCaller({ canResetHistory = false }) {
   const [points, setPoints] = useState([]),
     [point, setPoint] = useState(''),
     [linkedPanels, setLinkedPanels] = useState([]),
@@ -70,11 +71,25 @@ export function TicketCaller() {
 
   const setInitial = async () => {
     if (!point || !initialNumber || busy) return;
+    const pointName = points.find((p) => p.id === point)?.name || 'este guichê';
+    const next = String(Number(initialNumber)).padStart(4, '0');
+    if (
+      canResetHistory &&
+      !window.confirm(
+        `Definir a próxima senha como ${next} vai APAGAR o histórico de chamadas de ${pointName}. Isso não pode ser desfeito. Continuar?`
+      )
+    )
+      return;
     setBusy(true);
     setMsg('');
     try {
-      await cmipApi.setNextTicket(point, initialNumber);
-      setMsg(`Próxima senha definida como ${String(Number(initialNumber)).padStart(4, '0')}.`);
+      if (canResetHistory) {
+        const r = await cmipApi.resetTicketSequence(point, initialNumber);
+        setMsg(`Próxima senha definida como ${next}. Histórico apagado (${r?.deleted_calls ?? 0} chamadas).`);
+      } else {
+        await cmipApi.setNextTicket(point, initialNumber);
+        setMsg(`Próxima senha definida como ${next}.`);
+      }
       setInitialNumber('');
       await loadState(point, linkedPanels);
     } catch (e) {
@@ -184,6 +199,11 @@ export function TicketCaller() {
               <SlidersHorizontal className="w-4 h-4 text-cmip-400" />
               Definir Senha Inicial
             </h2>
+            {canResetHistory && (
+              <p className="text-xs text-amber-200/80 mb-2">
+                Também apaga o histórico de chamadas do guichê.
+              </p>
+            )}
             <div className="flex gap-2">
               <Field
                 aria-label="Senha inicial"

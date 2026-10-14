@@ -1,3 +1,5 @@
+import { ticketNumberFromPatientName } from './ticketPatient.js';
+
 const timeLabel = (value) =>
   new Date(value).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
@@ -25,6 +27,11 @@ export function normalizeTvEvent(e) {
     isRepeat: Boolean(e.is_recall || e.isRepeat),
     number: e.display_number || e.number || '',
     patientName: e.patient_name || e.patientName || '',
+    // Chamada médica por senha (paciente-senha SENHA-0045): a TV mostra o número, não um nome.
+    ticketNumber:
+      (e.kind || 'ticket') === 'medical'
+        ? ticketNumberFromPatientName(e.patient_name || e.patientName)
+        : null,
     desk: e.destination || e.desk || e.officeName || 'Guichê',
     officeName: e.destination || e.officeName || e.desk || 'Guichê',
     t0_timestamp: e.t0_timestamp || null,

@@ -397,3 +397,36 @@ console.log('All mandatory authentication tests: PASS');
 }
 
 console.log('Infrastructure review tests: PASS');
+
+// Encaminhamento por senha: paciente-senha SENHA-0045, mostrado e falado como número.
+{
+  const { parseTicketNumber, ticketPatientName, ticketNumberFromPatientName, patientLabel } = await import('./src/utils/ticketPatient.js');
+  const { normalizeTvEvent } = await import('./src/utils/tvEvents.js');
+  const { formatTextForSpeech } = await import('./src/utils/audio.js');
+  const { publicPatientName } = await import('./src/utils/patient.js');
+  const { isRemoteTtsPhraseAllowed } = await import('./src/utils/ttsPolicy.js');
+  assert.equal(ticketPatientName(45), 'SENHA-0045');
+  assert.equal(ticketPatientName('0045'), 'SENHA-0045');
+  assert.equal(ticketPatientName(0), null);
+  assert.equal(ticketPatientName(10000), null);
+  assert.equal(ticketPatientName('abc'), null);
+  assert.equal(parseTicketNumber('1.5'), null);
+  assert.equal(ticketNumberFromPatientName('SENHA-0045'), '0045');
+  assert.equal(ticketNumberFromPatientName('senha-45'), '0045');
+  assert.equal(ticketNumberFromPatientName('Senha Silva'), null);
+  assert.equal(ticketNumberFromPatientName('Maria Souza'), null);
+  assert.equal(patientLabel('SENHA-0045'), 'Senha 0045');
+  assert.equal(patientLabel('Maria Souza'), 'Maria Souza');
+  // A máscara pública (cliente e servidor) não altera nomes de uma palavra só.
+  assert.equal(publicPatientName('SENHA-0045'), 'SENHA-0045');
+  const ev = normalizeTvEvent({ kind: 'medical', patient_name: 'SENHA-0045', destination: 'Consultório 2', event_key: 'm1' });
+  assert.equal(ev.ticketNumber, '0045');
+  assert.equal(normalizeTvEvent({ kind: 'medical', patient_name: 'Maria S.', event_key: 'm2' }).ticketNumber, null);
+  assert.equal(normalizeTvEvent({ kind: 'ticket', display_number: '0045', event_key: 't1' }).ticketNumber, null);
+  const phrase = formatTextForSpeech(ev);
+  assert.equal(phrase, 'Senha 45. Consultório 2.');
+  assert(isRemoteTtsPhraseAllowed(phrase), 'frase de senha não contém nome e pode usar o TTS online');
+  assert.equal(formatTextForSpeech({ kind: 'medical', patientName: 'Maria S.', officeName: 'Consultório 2' }), 'Atenção. Paciente Maria S., dirigir-se ao Consultório 2.');
+  assert(apiSource.includes('enqueueByTicket'), 'API deve encaminhar por senha');
+  console.log('Ticket patient tests: OK');
+}

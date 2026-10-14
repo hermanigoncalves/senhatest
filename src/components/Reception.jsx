@@ -5,7 +5,8 @@ import { CAPABILITIES, hasCapability } from '../utils/capabilities';
 import { createLatestGuard } from '../utils/latest';
 import { Shell } from './Shell';
 import { TicketCaller } from './TicketCaller';
-import { Search, UserPlus } from 'lucide-react';
+import { MAX_TICKET_NUMBER, patientLabel, ticketPatientName } from '../utils/ticketPatient';
+import { Search, Ticket, UserPlus } from 'lucide-react';
 import { Button, Field, Card, err } from './ui';
 
 const emptyPatient = {
@@ -27,6 +28,7 @@ function PatientFlow({ profile }) {
     [selected, setSelected] = useState(null),
     [form, setForm] = useState(emptyPatient),
     [doctors, setDoctors] = useState([]),
+    [ticketNumber, setTicketNumber] = useState(''),
     [modal, setModal] = useState(false),
     [msg, setMsg] = useState(''),
     [busy, setBusy] = useState(false);
@@ -113,8 +115,81 @@ function PatientFlow({ profile }) {
       setBusy(false);
     }
   };
+  const enqueueTicket = async (doctorId) => {
+    const name = ticketPatientName(ticketNumber);
+    if (!name || busy) {
+      if (!name) setMsg(`Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await cmipApi.enqueueByTicket(
+        ticketNumber,
+        doctorId,
+        hasCapability(profile.role, CAPABILITIES.RECEPTION_SUPERUSER)
+      );
+      setMsg(`${patientLabel(name)} encaminhada com sucesso.`);
+      setTicketNumber('');
+      await loadDoctors();
+    } catch (e) {
+      setMsg(err(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Card className="lg:col-span-2">
+      <div className="mb-6 rounded-2xl bg-cmip-950 border border-cmip-500/30 p-4">
+        <h2 className="text-xl font-black flex gap-2">
+          <Ticket /> Encaminhar por senha
+        </h2>
+        <p className="text-xs text-cmip-100/60 mt-1">
+          Sem cadastro: a TV chama pelo número da senha, não pelo nome.
+        </p>
+        <div className="flex gap-2 mt-3 max-w-xs">
+          <Field
+            aria-label="Número da senha"
+            type="number"
+            min="1"
+            max={MAX_TICKET_NUMBER}
+            placeholder="Nº da senha"
+            value={ticketNumber}
+            onChange={(e) => setTicketNumber(e.target.value)}
+          />
+        </div>
+        {ticketNumber !== '' && !ticketPatientName(ticketNumber) && (
+          <p className="text-xs text-amber-200 mt-2">Senha deve ser um número de 1 a {MAX_TICKET_NUMBER}.</p>
+        )}
+        {ticketPatientName(ticketNumber) && (
+          <div className="mt-3">
+            <p className="text-sm font-bold mb-2">
+              Encaminhar {patientLabel(ticketPatientName(ticketNumber))} para:
+            </p>
+            {doctors.length === 0 ? (
+              <p className="text-cmip-100/60">Nenhum médico disponível no momento.</p>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-3">
+                {doctors.map((d) => (
+                  <div
+                    key={d.doctor_id}
+                    className="p-4 bg-cmip-900 rounded-2xl border border-cmip-600/30 flex justify-between gap-3 items-center"
+                  >
+                    <div>
+                      <b>{d.doctor_name}</b>
+                      <p className="text-xs text-cmip-100/60">
+                        {d.specialty || 'Especialidade não informada'} • {d.office_name}
+                      </p>
+                    </div>
+                    <Button disabled={busy} onClick={() => enqueueTicket(d.doctor_id)}>
+                      Encaminhar
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
       <div className="flex flex-wrap justify-between gap-3 items-center">
         <h2 className="text-xl font-black flex gap-2">
           <UserPlus /> Pacientes
@@ -327,7 +402,7 @@ function TransferQueue() {
     try {
       await cmipApi.transfer(row.id, target, null);
       setTargets((t) => ({ ...t, [row.id]: '' }));
-      setMsg(`${row.patient_name} transferido com sucesso.`);
+      setMsg(`${patientLabel(row.patient_name)} transferido com sucesso.`);
       await load();
     } catch (e) {
       setMsg(err(e));
@@ -348,7 +423,7 @@ function TransferQueue() {
               className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-center bg-cmip-950 p-3 rounded-xl"
             >
               <div>
-                <b>{row.patient_name}</b>
+                <b>{patientLabel(row.patient_name)}</b>
                 <p className="text-xs text-cmip-100/60">
                   Atual: {row.doctor_name} • {row.status}
                 </p>
@@ -385,7 +460,7 @@ export function Reception({ profile }) {
   return (
     <Shell profile={profile}>
       <div className="grid lg:grid-cols-2 gap-6">
-        <TicketCaller />
+        <TicketCaller canResetHistory={hasCapability(profile.role, CAPABILITIES.RECEPTION_SUPERUSER)} />
         <PatientFlow profile={profile} />
         <TransferQueue />
       </div>

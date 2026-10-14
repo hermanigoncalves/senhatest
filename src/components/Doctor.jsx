@@ -3,6 +3,7 @@ import { cmipApi } from '../utils/cmipApi';
 import { telemetry } from '../utils/telemetry';
 import { createTicker } from '../utils/ticker';
 import { createLatestGuard } from '../utils/latest';
+import { patientLabel } from '../utils/ticketPatient';
 import { Shell } from './Shell';
 import { RotateCcw, Stethoscope, Check, UserX } from 'lucide-react';
 import { Button, Card, err, publicPatientName } from './ui';
@@ -284,7 +285,7 @@ export function Doctor({ profile, actingDoctor = null }) {
                 className="p-4 bg-cmip-950 rounded-2xl flex flex-wrap justify-between items-center gap-2"
               >
                 <div>
-                  <b>{q.patient_name}</b>
+                  <b>{patientLabel(q.patient_name)}</b>
                   <p className="text-xs text-cmip-100/60">
                     {q.status} • {q.office_name || session?.office_name || 'sessão não iniciada'}
                   </p>

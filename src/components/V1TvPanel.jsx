@@ -305,7 +305,14 @@ export default function V1TvPanel({ slug }) {
       : 'text-amber-300 border-amber-500/30';
 
   const isMedical = current?.kind === 'medical';
-  const displayName = current ? (isMedical ? current.patientName : current.number) : '----';
+  const isTicketCall = Boolean(current?.ticketNumber);
+  const displayName = current
+    ? isTicketCall
+      ? current.ticketNumber
+      : isMedical
+        ? current.patientName
+        : current.number
+    : '----';
   const location = current?.officeName || current?.desk || 'Aguardando chamada';
 
   return (
@@ -384,11 +391,11 @@ export default function V1TvPanel({ slug }) {
 
             <div className="my-auto py-2 flex flex-col items-center justify-center max-w-4xl">
               <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
-                {isMedical ? 'PACIENTE' : 'SENHA ATUAL'}
+                {isMedical && !isTicketCall ? 'PACIENTE' : 'SENHA ATUAL'}
               </p>
               <div
                 className={`${
-                  isMedical
+                  isMedical && !isTicketCall
                     ? 'text-4xl sm:text-5xl md:text-6xl lg:text-7xl'
                     : 'text-6xl sm:text-7xl md:text-8xl lg:text-9xl'
                 } font-black tracking-tight text-white leading-tight uppercase`}
@@ -425,7 +432,7 @@ export default function V1TvPanel({ slug }) {
                   className="p-2 rounded-xl bg-cmip-950/80 border border-cmip-600/40 overflow-hidden"
                 >
                   <div className="text-xs md:text-sm font-black truncate">
-                    {x.kind === 'medical' ? x.patientName : x.number}
+                    {x.ticketNumber ? x.ticketNumber : x.kind === 'medical' ? x.patientName : x.number}
                   </div>
                   <div className="text-[10px] font-bold text-amber-300 truncate">
                     {x.officeName || x.desk}

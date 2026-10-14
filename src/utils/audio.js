@@ -2,6 +2,7 @@
 // Suporte a PC, Smart TV e Tablets (com SpeechSynthesis Nativo e Google TTS Online)
 
 import { isRemoteTtsPhraseAllowed } from './ttsPolicy.js';
+import { ticketNumberFromPatientName } from './ticketPatient.js';
 
 let audioCtx = null;
 let ptVoice = null;
@@ -231,8 +232,14 @@ export function formatTextForSpeech(ticketOrNumber, desk) {
 
     if (ticketOrNumber.patientName || ticketOrNumber.patient_name) {
       const patient = (ticketOrNumber.patientName || ticketOrNumber.patient_name).trim();
-      const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
-      return `${prefix}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
+      // Paciente-senha (SENHA-0045): fala como as demais senhas ("Senha 45. Consultório 1."), sem nome.
+      const ticketNumber = ticketNumberFromPatientName(patient);
+      if (ticketNumber) {
+        number = ticketNumber;
+      } else {
+        const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
+        return `${prefix}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
+      }
     }
   } else {
     number = String(ticketOrNumber || '0');
