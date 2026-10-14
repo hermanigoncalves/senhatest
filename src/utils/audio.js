@@ -413,7 +413,100 @@ export function speakTicketNative(phrase, { localOnly = false } = {}) {
   });
 }
 
+// Fully Kiosk Browser roda num Android WebView, que não tem voz no speechSynthesis. Com a "JavaScript Interface"
+// ativada, o Fully expõe window.fully.textToSpeech, que fala pelo motor de voz do Android, no próprio aparelho.
+export function getFullyTts(win = typeof window !== 'undefined' ? window : undefined) {
+  const fully = win && win.fully;
+  return fully && typeof fully.textToSpeech === 'function' ? fully : null;
+}
+
+// Duração estimada da fala (~13 caracteres/s). Usada quando o Fully não envia os eventos de TTS.
+export function fullySpeechDurationMs(phrase) {
+  return Math.max(2500, Math.min(15000, 1200 + String(phrase).length * 75));
+}
+
+// O Fully executa o código registrado em fully.bind(evento, código) quando o evento acontece.
+// Os eventos de TTS chegam a esta função global, que repassa para a fala em andamento (uma por vez na TV).
+const FULLY_TTS_CALLBACK = '__cmipFullyTtsEvent';
+let fullyTtsListener = null;
+const fullyTtsBound = new WeakSet();
+
+function bindFullyTtsEvents(fully, win) {
+  if (fullyTtsBound.has(fully)) return true;
+  if (typeof fully.bind !== 'function' || !win) return false;
+  try {
+    win[FULLY_TTS_CALLBACK] = (type) => {
+      if (fullyTtsListener) fullyTtsListener(type);
+    };
+    for (const [event, type] of [
+      ['ttsUtteranceStart', 'start'],
+      ['ttsUtteranceDone', 'done'],
+      ['ttsUtteranceError', 'error'],
+    ]) {
+      fully.bind(event, `window.${FULLY_TTS_CALLBACK} && window.${FULLY_TTS_CALLBACK}('${type}');`);
+    }
+    fullyTtsBound.add(fully);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function _resetFullyTtsForTest() {
+  fullyTtsListener = null;
+}
+
+export function speakTicketFully(
+  phrase,
+  fully = getFullyTts(),
+  win = typeof window !== 'undefined' ? window : undefined
+) {
+  if (!fully) return Promise.reject(new Error('Fully Kiosk JavaScript Interface indisponível'));
+  const hasEvents = bindFullyTtsEvents(fully, win);
+  const estimateMs = fullySpeechDurationMs(phrase);
+
+  return new Promise((resolve, reject) => {
+    let started = false;
+    let finished = false;
+    const finish = (err) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      fullyTtsListener = null;
+      if (err) reject(err);
+      else resolve();
+    };
+    // Sem eventos: espera o tempo estimado. Com eventos: espera o fim real, com folga de segurança.
+    // Ao estourar o tempo, encerra sem erro: a fala pode estar acontecendo e um fallback falaria em dobro.
+    const timer = setTimeout(() => finish(), hasEvents ? Math.min(18000, estimateMs + 4000) : estimateMs);
+
+    if (hasEvents) {
+      fullyTtsListener = (type) => {
+        if (type === 'start') started = true;
+        // O fim só vale depois do início desta fala (ignora "done" atrasado de uma fala anterior).
+        else if (started && type === 'done') finish();
+        // Erro pode vir sem início (motor de voz não carregou): libera o fallback em speakTicket.
+        else if (type === 'error') finish(new Error('Fully Kiosk: erro na fala'));
+      };
+    }
+
+    try {
+      try {
+        fully.textToSpeech(phrase, 'pt-BR');
+      } catch {
+        // Versões antigas do Fully só aceitam o texto.
+        fully.textToSpeech(phrase);
+      }
+    } catch (err) {
+      finish(err);
+    }
+  });
+}
+
 export function prepareTtsAudio(phrase) {
+  if (getFullyTts()) {
+    return { audio: null, readyPromise: Promise.resolve(null) };
+  }
   if (typeof window === 'undefined' || isServerTtsAvailable === false || !isRemoteTtsPhraseAllowed(phrase)) {
     return { audio: null, readyPromise: Promise.resolve(null) };
   }
@@ -495,6 +588,16 @@ export async function speakTicket(
   const phrase = directPhrase || formatTextForSpeech(ticketOrNumber, desk);
   const remoteAllowed = isRemoteTtsPhraseAllowed(phrase);
   if (onStart) onStart();
+
+  // 0. Fully Kiosk (TVs Android): voz do próprio aparelho para senha e nome; nada sai da TV.
+  if (getFullyTts()) {
+    try {
+      await speakTicketFully(phrase);
+      return;
+    } catch (err) {
+      console.warn('[TTS Fully Warning]', err?.message || err);
+    }
+  }
 
   const now = Date.now();
   // Circuit breaker: se já passou o tempo de cooldown de 5 minutos, permite nova tentativa do TTS remoto

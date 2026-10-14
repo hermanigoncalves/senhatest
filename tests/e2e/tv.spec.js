@@ -99,6 +99,52 @@ test('chamada médica mostra nome abreviado e nunca envia o nome ao TTS online',
   for (const t of ttsRequests) expect(t === '1' || /^Senha \d+\./.test(t)).toBe(true);
 });
 
+// Fully Kiosk Browser com a JavaScript Interface ativa: window.fully.textToSpeech fala pelo Android e
+// os eventos registrados com fully.bind são executados pelo app quando a fala começa e termina.
+async function stubFullyKiosk(page) {
+  await page.addInitScript(() => {
+    const handlers = {};
+    window.__fullyTts = [];
+    window.fully = {
+      bind: (event, code) => {
+        handlers[event] = code;
+      },
+      textToSpeech: (...args) => {
+        window.__fullyTts.push(args);
+        const run = (event) => handlers[event] && new Function(handlers[event])();
+        setTimeout(() => run('ttsUtteranceStart'), 50);
+        setTimeout(() => run('ttsUtteranceDone'), 800);
+      },
+    };
+  });
+}
+
+test('Fully Kiosk: chamada médica fala o nome pela voz do aparelho, sem TTS online', async ({ page }) => {
+  await stubFullyKiosk(page);
+  const ttsRequests = await setup(page, panelSequence(ticket('0001', 't1'), medical('m6')));
+  await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
+  await page.getByText('ATIVAR PAINEL').click();
+  await expect(page.getByText('CONSULTA MÉDICA')).toBeVisible({ timeout: 20000 });
+  await expect
+    .poll(() => page.evaluate(() => window.__fullyTts), { timeout: 10000 })
+    .toEqual([['Atenção. Paciente Maria S., dirigir-se à Sala 3.', 'pt-BR']]);
+  expect(ttsRequests.filter((t) => t !== '1')).toEqual([]);
+});
+
+test('Fully Kiosk: chamada de senha também usa a voz do aparelho', async ({ page }) => {
+  await stubFullyKiosk(page);
+  const ttsRequests = await setup(page, panelSequence(ticket('0001', 't1'), ticket('0002', 't2')));
+  await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
+  await page.getByText('ATIVAR PAINEL').click();
+  await expect(page.getByText('0002').first()).toBeVisible({ timeout: 20000 });
+  await expect
+    .poll(() => page.evaluate(() => window.__fullyTts), { timeout: 10000 })
+    .toEqual([['Senha 2. Guichê 1.', 'pt-BR']]);
+  expect(ttsRequests.filter((t) => t !== '1')).toEqual([]);
+  // A fila libera a TV depois do "done": o vídeo institucional volta.
+  await expect.poll(() => page.evaluate(() => window.__media.videoPlay), { timeout: 10000 }).toBeGreaterThan(1);
+});
+
 test('falha na primeira consulta: TV fica OFFLINE mas os vídeos carregam', async ({ page }) => {
   await stubMedia(page);
   await mockSupabase(page, {

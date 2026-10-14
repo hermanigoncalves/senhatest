@@ -1,7 +1,19 @@
 import './test_env.mjs';
 import assert from 'node:assert/strict';
 import { isRemoteTtsPhraseAllowed } from './src/utils/ttsPolicy.js';
-import { formatTextForSpeech, destinationPhrase, pickVoices, speakTicketViaEndpoint, chimeDataUri } from './src/utils/audio.js';
+import {
+  formatTextForSpeech,
+  destinationPhrase,
+  pickVoices,
+  speakTicketViaEndpoint,
+  chimeDataUri,
+  getFullyTts,
+  speakTicketFully,
+  fullySpeechDurationMs,
+  speakTicket,
+  prepareTtsAudio,
+  _resetFullyTtsForTest,
+} from './src/utils/audio.js';
 import { normalizeTvEvent, stableEventKey } from './src/utils/tvEvents.js';
 import { isTvPath, tvSlug } from './src/utils/routes.js';
 import { createLatestGuard } from './src/utils/latest.js';
@@ -84,6 +96,121 @@ await test('voz: prefere voz local; voz de rede só serve como alternativa', () 
   assert.equal(pickVoices([remote, en]).any, remote);
   assert.deepEqual(pickVoices([en]), { local: null, any: null });
   assert.deepEqual(pickVoices([]), { local: null, any: null });
+});
+
+await test('Fully Kiosk: detecção só com a JavaScript Interface ativa', () => {
+  assert.equal(getFullyTts(undefined), null);
+  assert.equal(getFullyTts({}), null);
+  assert.equal(getFullyTts({ fully: {} }), null, 'interface sem textToSpeech');
+  assert.equal(getFullyTts({ fully: { id: 'fully', tagName: 'DIV' } }), null, 'elemento com id="fully" não conta');
+  const fully = { textToSpeech() {} };
+  assert.equal(getFullyTts({ fully }), fully);
+});
+
+// Fully falso que emite os eventos registrados via fully.bind, como o app real faz.
+function fakeFully({ events = true, failTwoArgs = false } = {}) {
+  const win = {};
+  const handlers = {};
+  const calls = [];
+  const fully = {
+    textToSpeech: (...args) => {
+      if (failTwoArgs && args.length > 1) throw new Error('Method not found');
+      calls.push(args);
+    },
+    emit: (event) => {
+      if (handlers[event]) new Function('window', handlers[event])(win);
+    },
+  };
+  if (events) fully.bind = (event, code) => (handlers[event] = code);
+  win.fully = fully;
+  return { fully, win, calls, handlers };
+}
+
+await test('Fully Kiosk: sem eventos, fala em pt-BR e espera a duração estimada', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win, calls } = fakeFully({ events: false });
+  const phrase = formatTextForSpeech({ patientName: 'Maria S.', officeName: 'Sala 3' });
+  const t0 = Date.now();
+  await speakTicketFully(phrase, fully, win);
+  assert.deepEqual(calls, [[phrase, 'pt-BR']]);
+  assert.ok(Date.now() - t0 >= fullySpeechDurationMs(phrase) - 50, 'não libera a próxima chamada antes da hora');
+});
+
+await test('Fully Kiosk: versão antiga (só texto) continua falando', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win, calls } = fakeFully({ events: false, failTwoArgs: true });
+  await speakTicketFully('Senha 4. Guichê 1.', fully, win);
+  assert.deepEqual(calls, [['Senha 4. Guichê 1.']]);
+  await assert.rejects(() => speakTicketFully('x', null, win), /indisponível/);
+});
+
+await test('Fully Kiosk: com eventos, termina no "done" real e ignora "done" atrasado', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win, handlers } = fakeFully();
+  let done = false;
+  const p = speakTicketFully('Senha 7. Guichê 2.', fully, win).then(() => (done = true));
+  assert.deepEqual(Object.keys(handlers).sort(), ['ttsUtteranceDone', 'ttsUtteranceError', 'ttsUtteranceStart']);
+  fully.emit('ttsUtteranceDone'); // atrasado de uma fala anterior: ainda não começou esta
+  await sleep(20);
+  assert.equal(done, false);
+  fully.emit('ttsUtteranceStart');
+  fully.emit('ttsUtteranceDone');
+  const t0 = Date.now();
+  await p;
+  assert.ok(Date.now() - t0 < 500, 'libera assim que a fala termina');
+});
+
+await test('Fully Kiosk: registra os eventos uma única vez', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win } = fakeFully();
+  let binds = 0;
+  const bind = fully.bind;
+  fully.bind = (...a) => {
+    binds += 1;
+    return bind(...a);
+  };
+  for (let i = 0; i < 2; i += 1) {
+    const p = speakTicketFully('Senha 1. Guichê 1.', fully, win);
+    fully.emit('ttsUtteranceStart');
+    fully.emit('ttsUtteranceDone');
+    await p;
+  }
+  assert.equal(binds, 3);
+});
+
+await test('Fully Kiosk: erro do motor de voz rejeita (speakTicket usa o fallback)', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win } = fakeFully();
+  const p = speakTicketFully('Senha 9. Guichê 1.', fully, win);
+  fully.emit('ttsUtteranceError');
+  await assert.rejects(p, /erro na fala/);
+});
+
+await test('Fully Kiosk: speakTicket fala o nome pelo Fully, sem rede', async () => {
+  _resetFullyTtsForTest();
+  const { fully, win, calls } = fakeFully();
+  const fetches = [];
+  const prevWindow = globalThis.window;
+  const prevFetch = globalThis.fetch;
+  globalThis.window = win;
+  globalThis.fetch = (...a) => {
+    fetches.push(a);
+    return Promise.reject(new Error('sem rede'));
+  };
+  try {
+    const ticket = { patientName: 'João S.', officeName: 'Consultório 2' };
+    const p = speakTicket(ticket, null);
+    await sleep(10);
+    fully.emit('ttsUtteranceStart');
+    fully.emit('ttsUtteranceDone');
+    await p;
+    assert.deepEqual(calls, [['Atenção. Paciente João S., dirigir-se ao Consultório 2.', 'pt-BR']]);
+    assert.equal(fetches.length, 0);
+    assert.deepEqual(prepareTtsAudio('Senha 4. Guichê 1.').audio, null, 'no Fully não pré-carrega voz online');
+  } finally {
+    globalThis.window = prevWindow;
+    globalThis.fetch = prevFetch;
+  }
 });
 
 await test('campainha: WAV válido, sem clipping, ding e dong presentes', () => {
