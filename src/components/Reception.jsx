@@ -6,7 +6,9 @@ import { createLatestGuard } from '../utils/latest';
 import { Shell } from './Shell';
 import { TicketCaller } from './TicketCaller';
 import { MAX_TICKET_NUMBER, patientLabel, ticketPatientName } from '../utils/ticketPatient';
+import { statusLabel } from '../utils/labels';
 import { Search, Ticket, UserPlus } from 'lucide-react';
+import { DoctorPicker } from './DoctorPicker';
 import { Button, Field, Card, err } from './ui';
 
 const emptyPatient = {
@@ -98,23 +100,6 @@ function PatientFlow({ profile }) {
       setBusy(false);
     }
   };
-  const enqueue = async (doctorId) => {
-    if (!selected) return;
-    setBusy(true);
-    try {
-      await cmipApi.enqueue(
-        selected.id,
-        doctorId,
-        hasCapability(profile.role, CAPABILITIES.RECEPTION_SUPERUSER)
-      );
-      setMsg(`${selected.full_name} encaminhado com sucesso.`);
-      await loadDoctors();
-    } catch (e) {
-      setMsg(err(e));
-    } finally {
-      setBusy(false);
-    }
-  };
   const enqueueTicket = async (doctorId) => {
     const name = ticketPatientName(ticketNumber);
     if (!name || busy) {
@@ -139,12 +124,12 @@ function PatientFlow({ profile }) {
   };
   return (
     <Card className="lg:col-span-2">
-      <div className="mb-6 rounded-2xl bg-cmip-950 border border-cmip-500/30 p-4">
+      <div className="mb-6 pb-6 border-b border-cmip-600/30">
         <h2 className="text-xl font-black flex gap-2">
           <Ticket /> Encaminhar por senha
         </h2>
         <p className="text-xs text-cmip-100/60 mt-1">
-          Sem cadastro: a TV chama pelo número da senha, não pelo nome.
+          O paciente é chamado pelo número da senha, na TV, na voz e no consultório.
         </p>
         <div className="flex gap-2 mt-3 max-w-xs">
           <Field
@@ -165,34 +150,13 @@ function PatientFlow({ profile }) {
             <p className="text-sm font-bold mb-2">
               Encaminhar {patientLabel(ticketPatientName(ticketNumber))} para:
             </p>
-            {doctors.length === 0 ? (
-              <p className="text-cmip-100/60">Nenhum médico disponível no momento.</p>
-            ) : (
-              <div className="grid md:grid-cols-2 gap-3">
-                {doctors.map((d) => (
-                  <div
-                    key={d.doctor_id}
-                    className="p-4 bg-cmip-900 rounded-2xl border border-cmip-600/30 flex justify-between gap-3 items-center"
-                  >
-                    <div>
-                      <b>{d.doctor_name}</b>
-                      <p className="text-xs text-cmip-100/60">
-                        {d.specialty || 'Especialidade não informada'} • {d.office_name}
-                      </p>
-                    </div>
-                    <Button disabled={busy} onClick={() => enqueueTicket(d.doctor_id)}>
-                      Encaminhar
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
+            <DoctorPicker doctors={doctors} busy={busy} onPick={enqueueTicket} />
           </div>
         )}
       </div>
       <div className="flex flex-wrap justify-between gap-3 items-center">
         <h2 className="text-xl font-black flex gap-2">
-          <UserPlus /> Pacientes
+          <UserPlus /> Cadastro de pacientes
         </h2>
         <Button
           className="bg-slate-700 text-white"
@@ -238,9 +202,8 @@ function PatientFlow({ profile }) {
       )}
       {selected && (
         <div className="mt-5 space-y-5">
-          <div className="rounded-2xl bg-cmip-950 border border-cmip-500/30 p-4">
-            <p className="text-xs uppercase tracking-wider text-cmip-400 font-bold">Paciente selecionado</p>
-            <h3 className="text-xl font-black mt-1">{selected.full_name}</h3>
+          <div aria-label="Paciente selecionado">
+            <h3 className="text-xl font-black">{selected.full_name}</h3>
             <div className="text-sm text-cmip-100/70 mt-2 flex flex-wrap gap-x-5 gap-y-1">
               <span>
                 Nascimento:{' '}
@@ -251,31 +214,6 @@ function PatientFlow({ profile }) {
               {selected.cpf && <span>CPF: {formatCpf(selected.cpf)}</span>}
               {selected.phone && <span>Telefone: {selected.phone}</span>}
             </div>
-          </div>
-          <div>
-            <h3 className="font-black mb-3">Encaminhar para médico</h3>
-            {doctors.length === 0 ? (
-              <p className="text-cmip-100/60">Nenhum médico disponível no momento.</p>
-            ) : (
-              <div className="grid md:grid-cols-2 gap-3">
-                {doctors.map((d) => (
-                  <div
-                    key={d.doctor_id}
-                    className="p-4 bg-cmip-950 rounded-2xl border border-cmip-600/30 flex justify-between gap-3 items-center"
-                  >
-                    <div>
-                      <b>{d.doctor_name}</b>
-                      <p className="text-xs text-cmip-100/60">
-                        {d.specialty || 'Especialidade não informada'} • {d.office_name}
-                      </p>
-                    </div>
-                    <Button disabled={busy} onClick={() => enqueue(d.doctor_id)}>
-                      Encaminhar
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -416,16 +354,13 @@ function TransferQueue() {
       {rows.length === 0 ? (
         <p className="text-cmip-100/60">Nenhum paciente ativo na fila.</p>
       ) : (
-        <div className="space-y-2">
+        <div className="divide-y divide-cmip-600/30 border-y border-cmip-600/30">
           {rows.map((row) => (
-            <div
-              key={row.id}
-              className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-center bg-cmip-950 p-3 rounded-xl"
-            >
+            <div key={row.id} className="grid md:grid-cols-[1fr_1fr_auto] gap-2 items-center py-3">
               <div>
                 <b>{patientLabel(row.patient_name)}</b>
                 <p className="text-xs text-cmip-100/60">
-                  Atual: {row.doctor_name} • {row.status}
+                  {row.doctor_name} · {statusLabel(row.status)}
                 </p>
               </div>
               <select

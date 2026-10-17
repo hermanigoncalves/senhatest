@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { normalizeUsername, isValidUsername } from '../utils/identity';
 import { MIN_PASSWORD_LENGTH } from '../utils/validation';
+import { roleLabel } from '../utils/labels';
 import { Shell } from './Shell';
 import { Button, Field, Card, err } from './ui';
 
@@ -141,7 +142,7 @@ export function Admin({ profile }) {
     }
   };
   const filtered = users.filter((u) =>
-    `${u.full_name} ${u.display_name || ''} ${u.username || ''} ${u.email || ''} ${u.role}`
+    `${u.full_name} ${u.display_name || ''} ${u.username || ''} ${u.email || ''} ${u.role} ${roleLabel(u.role)}`
       .toLowerCase()
       .includes(query.toLowerCase())
   );
@@ -221,7 +222,7 @@ export function Admin({ profile }) {
                 </div>
                 <Button onClick={() => open('user')}>+ Novo usuário</Button>
               </div>
-              <div className="space-y-2">
+              <div className="divide-y divide-cmip-600/30 border-y border-cmip-600/30">
                 {filtered.map((u) => (
                   <UserIdentityRow
                     key={u.id}
@@ -327,11 +328,12 @@ export function Admin({ profile }) {
 }
 function UserIdentityRow({ user, busy, protectedUser, onToggle, onReset }) {
   return (
-    <div className="grid lg:grid-cols-[1fr_auto] gap-3 items-center bg-cmip-950 rounded-xl p-3">
+    <div className="grid lg:grid-cols-[1fr_auto] gap-3 items-center py-3">
       <div>
         <b>{user.display_name || user.full_name}</b>
         <p className="text-xs text-cmip-100/60">
-          Nome completo: {user.full_name} • Usuário: {user.username || 'não configurado'} • {user.role}
+          Nome completo: {user.full_name} • Usuário: {user.username || 'não configurado'} •{' '}
+          {roleLabel(user.role)}
           {user.must_change_password ? ' • primeiro acesso pendente' : ''}
         </p>
       </div>

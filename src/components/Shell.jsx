@@ -1,6 +1,7 @@
 import React from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { LogOut } from 'lucide-react';
+import { roleLabel } from '../utils/labels';
 import { Button } from './ui';
 
 export function Shell({ profile, children, onBeforeLogout }) {
@@ -23,10 +24,10 @@ export function Shell({ profile, children, onBeforeLogout }) {
             <img src="/logo.png" className="h-11 bg-white rounded-xl p-1" alt="CMIP" />
             <div>
               <b>{profile.full_name}</b>
-              <p className="text-xs text-cmip-100/60 uppercase">{profile.role}</p>
+              <p className="text-xs text-cmip-100/60">{roleLabel(profile.role)}</p>
             </div>
           </div>
-          <Button className="bg-rose-900 text-rose-100" onClick={logout}>
+          <Button className="bg-cmip-900 text-cmip-100 hover:bg-cmip-800" onClick={logout}>
             <LogOut className="inline w-4" /> Sair
           </Button>
         </header>

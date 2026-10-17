@@ -220,7 +220,7 @@ export function TicketCaller({ canResetHistory = false }) {
             </div>
           </Card>
         </div>
-        <div className="p-8 bg-gradient-to-br from-cmip-800/80 via-cmip-900/90 to-cmip-950 border border-cmip-500/40 rounded-3xl text-center space-y-6">
+        <div className="p-8 bg-cmip-900 border border-cmip-500/40 rounded-3xl text-center space-y-6">
           <div>
             <span className="text-xs font-bold tracking-widest text-cmip-400 uppercase">
               Próxima Senha a Ser Chamada:{' '}
@@ -229,13 +229,12 @@ export function TicketCaller({ canResetHistory = false }) {
               </strong>
             </span>
             <h3 className="text-3xl font-black text-white mt-3">Chamar Próximo Paciente</h3>
-            <p className="text-xs text-cmip-100/80 mt-1">Praticidade e agilidade no atendimento.</p>
           </div>
           <div className="flex flex-col sm:flex-row justify-center gap-4">
             <button
               onClick={() => runCall(() => cmipApi.callNextTicket(point))}
               disabled={busy}
-              className="px-10 py-5 bg-gradient-to-r from-cmip-500 to-cmip-600 text-cmip-950 rounded-2xl font-black text-xl flex items-center justify-center gap-3 disabled:opacity-50"
+              className="px-10 py-5 bg-cmip-500 hover:bg-cmip-400 text-cmip-950 rounded-2xl font-black text-xl flex items-center justify-center gap-3 disabled:opacity-50"
             >
               <Play className="w-7 h-7 fill-cmip-950" />
               CHAMAR PRÓXIMA
@@ -296,11 +295,11 @@ export function TicketCaller({ canResetHistory = false }) {
         </Card>
         <Card>
           <h3 className="font-black mb-3">Últimas chamadas</h3>
-          <div className="space-y-2">
+          <div className="divide-y divide-cmip-600/30">
             {history.slice(0, 5).map((h) => (
               <div
                 key={h.event_key || h.id || `${h.display_number}-${h.at}`}
-                className="flex justify-between bg-cmip-950 rounded-xl p-3"
+                className="flex justify-between py-2"
               >
                 <b>{h.display_number}</b>
                 <span className="text-xs text-cmip-100/60">{h.destination}</span>
