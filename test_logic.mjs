@@ -22,6 +22,7 @@ import { telemetry } from './src/utils/telemetry.js';
 import { cmipApi, functionErrorMessage } from './src/utils/cmipApi.js';
 import { supabase } from './src/utils/supabaseClient.js';
 import { publicPatientName } from './src/utils/patient.js';
+import { statusLabel, roleLabel } from './src/utils/labels.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let count = 0;
@@ -428,6 +429,15 @@ await test('subscribe agrupa rajadas de eventos e cancela timers ao sair', async
     supabase.channel = origChannel;
     supabase.removeChannel = origRemove;
   }
+});
+
+await test('rótulos em português para status da fila e perfis', () => {
+  assert.equal(statusLabel('waiting'), 'Aguardando');
+  assert.equal(statusLabel('in_service'), 'Em atendimento');
+  assert.equal(statusLabel('valor_novo'), 'valor_novo');
+  assert.equal(roleLabel('receptionist'), 'Recepção');
+  assert.equal(roleLabel('doctor'), 'Médico');
+  assert.equal(roleLabel(undefined), '');
 });
 
 console.log(`Logic tests: OK (${count} grupos)`);

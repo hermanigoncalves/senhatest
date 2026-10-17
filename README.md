@@ -38,6 +38,14 @@ supabase/functions/      Edge Function master-user-admin
 tests/e2e/               Playwright
 ```
 
+## Fluxo da senha
+
+1. Recepção chama a senha no guichê (TV e voz: "Senha 45").
+2. Recepção encaminha **pela senha** ao médico (`SENHA-0045`); o paciente é chamado pelo número em todo o fluxo
+   (fila do médico, TV, voz e consultório). O cadastro de pacientes não é mais um caminho de encaminhamento.
+3. O médico abre a tela e o último consultório usado é reativado sozinho; ele só usa **Chamar → Finalizar**
+   (Rechamar, Ausente e Voltar para a fila ficam em "Mais ações").
+
 ## TV (painel público)
 
 - `/tv/<codigo>` é público por decisão do CMIP (sem login). O estado vem de `get_public_display_state`,
