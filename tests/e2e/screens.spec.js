@@ -155,6 +155,7 @@ test('recepção: encaminha senha para a caixa do consultório e chama sem médi
   const mocks = receptionMocks({
     office_ticket_queues: () => [
       { office_id: 'o1', office_name: 'Consultório 1', items: queue.filter((x) => x.office_id === 'o1') },
+      { office_id: 'o10', office_name: 'Consultório 10', items: [] },
       { office_id: 'o2', office_name: 'Consultório 2', items: [] },
     ],
     office_ticket_enqueue: (b) => {
@@ -171,14 +172,19 @@ test('recepção: encaminha senha para a caixa do consultório e chama sem médi
   mocks.rest.display_panel_offices = () => [{ display_panel_id: 'p1', display_panels: { code: 'recepcao', active: true } }];
   await mockSupabase(page, mocks);
   await page.goto('/');
-  const box = page.getByLabel('Caixa Consultório 1');
-  await expect(page.getByLabel('Caixa Consultório 2')).toBeVisible();
-  await box.getByLabel('Senha para Consultório 1').fill('45');
-  await box.getByRole('button', { name: 'Encaminhar' }).click();
+  await page.getByLabel('Número da senha').fill('45');
+  await page.getByRole('button', { name: 'Encaminhar', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Escolher consultório' });
+  await expect(dialog.getByText('Encaminhar Senha 0045 para:')).toBeVisible();
+  // ordem natural: 1, 2, 10 (e não 1, 10, 2)
+  const names = await dialog.locator('b').allTextContents();
+  expect(names.filter((n) => n.startsWith('Consultório'))).toEqual(['Consultório 1', 'Consultório 2', 'Consultório 10']);
+  await dialog.getByRole('button', { name: /Consultório 1 / }).click();
   await expect(page.getByText('Senha 0045 encaminhada para Consultório 1.')).toBeVisible();
   expect(enqueued).toEqual({ p_office_id: 'o1', p_number: 45 });
-  await box.getByRole('button', { name: /Chamar/ }).click();
-  await expect(box.getByRole('button', { name: /Rechamar/ })).toBeVisible();
+  const row = page.getByRole('listitem').filter({ hasText: 'Senha 0045' });
+  await row.getByRole('button', { name: /^Chamar/ }).click();
+  await expect(row.getByRole('button', { name: /Rechamar/ })).toBeVisible();
   expect(called).toEqual({ p_queue_id: 'q1', p_action: 'call' });
 });
 
