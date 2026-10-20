@@ -40,7 +40,8 @@ tests/e2e/               Playwright
 
 ## Fluxo da senha
 
-1. Recepção chama a senha no guichê (TV e voz: "Senha 45").
+1. Recepção chama a senha no guichê (TV e voz: "Senha 45"). A sequência é **única para a clínica**: qualquer
+   guichê chama o próximo número da fila geral; o guichê é só o destino (migration `20261023120000`).
 2. Recepção encaminha a senha para um **consultório**: há uma caixa por consultório ativo; digita o número na caixa,
    clica **Encaminhar** e depois **Chamar** (ou Rechamar / Concluir / Remover). Não precisa de médico logado: a TV
    anuncia "Senha 45. Consultório 1." (tabelas `office_ticket_queue` / `office_ticket_calls`). A mesma senha não

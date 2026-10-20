@@ -7,6 +7,7 @@ import { Button, Field, Card, err } from './ui';
 // Painel usado apenas quando o guichê ainda não tem nenhuma TV vinculada.
 const DEFAULT_PANEL = 'recepcao';
 
+// A sequência de senhas é única para a clínica: qualquer guichê chama o próximo número da fila geral.
 // canResetHistory: Admin/Master. Ao definir a senha inicial, o histórico de chamadas do guichê também é apagado.
 export function TicketCaller({ canResetHistory = false }) {
   const [points, setPoints] = useState([]),

@@ -77,7 +77,7 @@ const receptionMocks = (extra = {}) => ({
     reception_queue_view: () => [],
   },
   rpc: {
-    get_ticket_counter_state: () => ({ current_number: 5, next_number: 6, display_next: '0006' }),
+    get_global_ticket_counter_state: () => ({ current_number: 5, next_number: 6, display_next: '0006' }),
     // a última chamada do painel foi MÉDICA: antes o botão RECHAMAR ficava desabilitado
     get_display_state: () => ({
       current: { kind: 'medical', patient_name: 'Maria Souza', event_key: 'm1' },
@@ -100,12 +100,48 @@ test('recepção: RECHAMAR continua disponível quando a última chamada do pain
 test('recepção: a próxima senha acompanha sozinha quando outro computador chama', async ({ page }) => {
   await seedSession(page);
   let counter = { current_number: 5, next_number: 6, display_next: '0006' };
-  await mockSupabase(page, receptionMocks({ get_ticket_counter_state: () => counter }));
+  await mockSupabase(page, receptionMocks({ get_global_ticket_counter_state: () => counter }));
   await page.goto('/');
   await expect(page.getByText('0006', { exact: true })).toBeVisible();
   counter = { current_number: 41, next_number: 42, display_next: '0042' };
   await expect(page.getByText('0042', { exact: true })).toBeVisible({ timeout: 12000 });
   await expect(page.getByText('41 / 1000')).toBeVisible();
+});
+
+test('recepção: CHAMAR PRÓXIMA usa a sequência única da clínica', async ({ page }) => {
+  await seedSession(page);
+  const calls = [];
+  await mockSupabase(
+    page,
+    receptionMocks({
+      call_next_global_ticket: (b) => (calls.push(['global', b]), { id: 't6', display_number: '0006' }),
+      call_next_ticket: (b) => (calls.push(['guiche', b]), { id: 't6', display_number: '0006' }),
+    })
+  );
+  await page.goto('/');
+  await page.getByRole('button', { name: 'CHAMAR PRÓXIMA' }).click();
+  await expect(page.getByText('Senha 0006 chamada')).toBeVisible();
+  expect(calls).toEqual([['global', { p_service_point_id: 'sp1' }]]);
+});
+
+test('recepção: sem a migration da sequência única, continua no contador do guichê', async ({ page }) => {
+  await seedSession(page);
+  const missing = () => ({ status: 404, body: { code: 'PGRST202', message: 'Could not find the function' } });
+  const calls = [];
+  await mockSupabase(
+    page,
+    receptionMocks({
+      get_global_ticket_counter_state: missing,
+      call_next_global_ticket: missing,
+      get_ticket_counter_state: () => ({ current_number: 8, next_number: 9, display_next: '0009' }),
+      call_next_ticket: (b) => (calls.push(b), { id: 't9', display_number: '0009' }),
+    })
+  );
+  await page.goto('/');
+  await expect(page.getByText('0009', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'CHAMAR PRÓXIMA' }).click();
+  await expect(page.getByText('Senha 0009 chamada')).toBeVisible();
+  expect(calls).toEqual([{ p_service_point_id: 'sp1' }]);
 });
 
 test('recepção: erro ao carregar guichês aparece como mensagem, não como lista vazia', async ({ page }) => {

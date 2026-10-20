@@ -24,6 +24,9 @@ Obrigatórias em qualquer ambiente: o build falha sem elas e não há fallback p
    vê e chama/conclui as senhas encaminhadas ao seu consultório.
 9. `20261022120000_office_ticket_doctor_only.sql` — **ainda não aplicada** (requer a 8): só o médico do consultório
    (ou Admin/Master) chama, confirma ou cancela; a recepção só troca o consultório da senha.
+10. `20261023120000_global_ticket_sequence.sql` — **ainda não aplicada** (requer a 7): sequência de senhas única
+    para a clínica (antes cada guichê tinha a sua). Depois de aplicar, use "Definir Senha Inicial" uma vez na
+    recepção. Sem ela, o frontend continua no contador de cada guichê.
 
 Aplicar sempre primeiro no CMIPtst e validar. Teste local descartável: `supabase/tests/run_local.sh`.
 

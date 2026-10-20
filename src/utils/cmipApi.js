@@ -11,6 +11,19 @@ const rpc = async (name, args = {}) => {
   return data;
 };
 
+// RPC ausente no banco (migration ainda não aplicada). O PostgREST recusa antes de executar, então cair na
+// RPC antiga nunca repete uma ação.
+export const isMissingRpc = (e) =>
+  e?.code === 'PGRST202' || /Could not find the function/i.test(e?.message || '');
+const rpcOr = async (name, args, fallback) => {
+  try {
+    return await rpc(name, args);
+  } catch (e) {
+    if (isMissingRpc(e)) return fallback();
+    throw e;
+  }
+};
+
 // Leituras de tabela/view: erro de RLS ou de rede deve aparecer como erro, nunca como "lista vazia".
 const rows = async (query) => {
   const { data, error } = await query;
@@ -82,13 +95,24 @@ export const cmipApi = {
     return data;
   },
   servicePoints: () => rows(supabase.from('service_points').select('*').eq('active', true).order('name')),
-  callNextTicket: (id) => rpc('call_next_ticket', { p_service_point_id: id }),
+  // Sequência única da clínica (migration 20261023120000): o guichê é só o destino da chamada.
+  // Sem a migration, continua no contador antigo de cada guichê.
+  callNextTicket: (id) =>
+    rpcOr('call_next_global_ticket', { p_service_point_id: id }, () =>
+      rpc('call_next_ticket', { p_service_point_id: id })
+    ),
   recallTicket: (id) => rpc('recall_ticket', { p_service_point_id: id }),
   callSpecificTicket: (id, n) => rpc('call_specific_ticket', { p_service_point_id: id, p_number: Number(n) }),
-  setNextTicket: (id, n) => rpc('set_next_ticket', { p_service_point_id: id, p_number: Number(n) }),
-  // Admin/Master: define a próxima senha E apaga o histórico de chamadas do guichê (irreversível).
-  resetTicketSequence: (id, n) =>
-    rpc('reset_ticket_sequence', { p_service_point_id: id, p_number: Number(n) }),
+  setNextTicket: (id, n) =>
+    rpcOr('set_next_global_ticket', { p_number: Number(n) }, () =>
+      rpc('set_next_ticket', { p_service_point_id: id, p_number: Number(n) })
+    ),
+  // Admin/Master: apaga o histórico de chamadas do guichê (irreversível) e define a próxima senha da clínica.
+  resetTicketSequence: async (id, n) => {
+    const r = await rpc('reset_ticket_sequence', { p_service_point_id: id, p_number: Number(n) });
+    await rpcOr('set_next_global_ticket', { p_number: Number(n) }, () => null);
+    return r;
+  },
   searchPatients: (term = '') => rpc('search_patients', { p_term: term }),
   savePatient: (patient) => rpc('save_patient', { p_patient: patient }),
   availableDoctors: () => rpc('list_available_doctors'),
@@ -142,7 +166,10 @@ export const cmipApi = {
   panelState: (slug) => rpc('get_display_state', { p_panel_slug: slug }),
   activeDisplayPanels: () => rpc('list_active_display_panels'),
   publicPanelState: (slug) => rpc('get_public_display_state', { p_panel_slug: slug }),
-  ticketCounterState: (id) => rpc('get_ticket_counter_state', { p_service_point_id: id }),
+  ticketCounterState: (id) =>
+    rpcOr('get_global_ticket_counter_state', {}, () =>
+      rpc('get_ticket_counter_state', { p_service_point_id: id })
+    ),
   completeFirstPasswordChange: () => rpc('complete_first_password_change'),
   updateOwnPassword: (password) => supabase.auth.updateUser({ password }),
   adminListUsers: () => rpc('admin_list_users'),
