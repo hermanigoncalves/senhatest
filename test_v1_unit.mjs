@@ -428,5 +428,6 @@ console.log('Infrastructure review tests: PASS');
   assert.equal(formatTextForSpeech({ kind: 'medical', patientName: 'Maria S.', officeName: 'Consultório 2' }), 'Atenção. Paciente Maria S., dirigir-se ao Consultório 2.');
   assert(apiSource.includes("office_ticket_enqueue"), 'API deve encaminhar senha para o consultório');
   assert(apiSource.includes("office_ticket_action"), 'API deve chamar/concluir senha do consultório');
+  assert(apiSource.includes("office_ticket_office_queue"), 'Médico deve ler as senhas do próprio consultório');
   console.log('Ticket patient tests: OK');
 }

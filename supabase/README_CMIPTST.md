@@ -20,6 +20,10 @@ Obrigatórias em qualquer ambiente: o build falha sem elas e não há fallback p
    duplicada concorrente, fila delegada sem duplicação e estado público da TV com lista de permissão de campos.
 7. `20261020120000_office_ticket_queue.sql` — **ainda não aplicada** (requer a 6): fila de senhas por consultório sem
    médico logado (caixas na recepção) e TV pública mesclando essas chamadas.
+8. `20261021120000_office_ticket_doctor_access.sql` — **ainda não aplicada** (requer a 7): o médico com sessão ativa
+   vê e chama/conclui as senhas encaminhadas ao seu consultório.
+9. `20261022120000_office_ticket_doctor_only.sql` — **ainda não aplicada** (requer a 8): só o médico do consultório
+   (ou Admin/Master) chama, confirma ou cancela; a recepção só troca o consultório da senha.
 
 Aplicar sempre primeiro no CMIPtst e validar. Teste local descartável: `supabase/tests/run_local.sh`.
 

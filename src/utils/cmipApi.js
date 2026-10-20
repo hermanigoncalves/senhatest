@@ -99,6 +99,11 @@ export const cmipApi = {
     }),
   // Fila de senhas por consultório (sem médico logado): uma caixa por consultório ativo.
   officeTicketQueues: () => rpc('office_ticket_queues'),
+  // Médico: senhas encaminhadas ao consultório da sessão ativa.
+  officeTicketOfficeQueue: (officeId) => rpc('office_ticket_office_queue', { p_office_id: officeId }),
+  // Recepção: troca o consultório de uma senha ainda na caixa (não chama nem cancela).
+  officeTicketMove: (queueId, officeId) =>
+    rpc('office_ticket_move', { p_queue_id: queueId, p_office_id: officeId }),
   officeTicketEnqueue: (officeId, number) =>
     rpc('office_ticket_enqueue', { p_office_id: officeId, p_number: Number(number) }),
   // action: 'call' (chama ou rechama), 'finish' ou 'cancel'. Em 'call' devolve o evento da TV.

@@ -45,8 +45,9 @@ tests/e2e/               Playwright
    clica **Encaminhar** e depois **Chamar** (ou Rechamar / Concluir / Remover). Não precisa de médico logado: a TV
    anuncia "Senha 45. Consultório 1." (tabelas `office_ticket_queue` / `office_ticket_calls`). A mesma senha não
    pode estar em duas caixas no mesmo dia; senhas de dias anteriores deixam de aparecer.
-3. O médico, quando usa o sistema, segue com a fila própria (**Chamar → Finalizar**); a caixa do consultório é
-   operada pela recepção.
+3. Depois de encaminhada, a recepção só pode **trocar o consultório** da senha. Quem **chama, rechama, confirma
+   ou cancela** é o médico com sessão ativa no consultório (ou Admin/Master em "Atuar como médico"); as senhas
+   esperando aparecem na tela dele quando ele entra. A fila própria de pacientes segue com **Chamar → Finalizar**.
 
 ## TV (painel público)
 

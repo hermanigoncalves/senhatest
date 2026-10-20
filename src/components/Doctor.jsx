@@ -5,6 +5,7 @@ import { createTicker } from '../utils/ticker';
 import { createLatestGuard } from '../utils/latest';
 import { patientLabel } from '../utils/ticketPatient';
 import { Shell } from './Shell';
+import { OfficeTicketList } from './OfficeTicketList';
 import { statusLabel } from '../utils/labels';
 import { RotateCcw, Stethoscope, CheckCheck, UserX, Undo2, Megaphone, MoreHorizontal } from 'lucide-react';
 import { Button, Card, err, publicPatientName } from './ui';
@@ -334,6 +335,9 @@ export function Doctor({ profile, actingDoctor = null }) {
               />
             ))}
           </ul>
+        )}
+        {session?.office_id && (
+          <OfficeTicketList officeId={session.office_id} officeName={session.office_name || 'consultório'} />
         )}
       </Card>
     </Shell>

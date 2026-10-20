@@ -1,13 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { createLatestGuard } from '../utils/latest';
-import { telemetry } from '../utils/telemetry';
 import { MAX_TICKET_NUMBER, parseTicketNumber } from '../utils/ticketPatient';
-import { Megaphone, Check, X } from 'lucide-react';
 import { Button, Field, Card, err } from './ui';
-
-// Painel usado apenas quando o consultório ainda não tem nenhuma TV vinculada.
-const DEFAULT_PANEL = 'recepcao';
 
 // Uma caixa por consultório: a recepção encaminha a senha para o consultório e chama de lá.
 // Não depende de médico logado.
@@ -15,6 +10,7 @@ export function OfficeTicketBoard() {
   const [offices, setOffices] = useState([]),
     [ticketNumber, setTicketNumber] = useState(''),
     [picking, setPicking] = useState(false),
+    [moveTargets, setMoveTargets] = useState({}),
     [busy, setBusy] = useState(''),
     [msg, setMsg] = useState(''),
     [loadError, setLoadError] = useState(''),
@@ -76,36 +72,16 @@ export function OfficeTicketBoard() {
     }
   };
 
-  const act = async (office, item, action) => {
-    if (busy) return;
-    if (
-      action === 'cancel' &&
-      !window.confirm(`Remover a senha ${item.display_number} de ${office.office_name}?`)
-    )
-      return;
-    setBusy(`${item.id}:${action}`);
+  // A recepção só troca o consultório; chamar, confirmar e cancelar é do médico do consultório.
+  const move = async (item) => {
+    const target = offices.find((o) => o.office_id === moveTargets[item.id]);
+    if (!target || busy) return;
+    setBusy(`${item.id}:move`);
     setMsg('');
-    const t0_timestamp = Date.now();
     try {
-      const ev = await cmipApi.officeTicketAction(item.id, action);
-      if (action === 'call' && ev?.event_key) {
-        const linked = await cmipApi.panelsForOffice(office.office_id);
-        const panels = linked.length ? linked : [DEFAULT_PANEL];
-        const t3_timestamp = Date.now();
-        const payload = { ...ev, patient_name: null, t0_timestamp, t3_timestamp };
-        const results = await Promise.all(panels.map((s) => cmipApi.broadcastCall(s, payload)));
-        telemetry.mark(ev.event_key, 'T3', {
-          broadcastSent: results.every(Boolean),
-          targetPanels: panels,
-          wallTime: t3_timestamp,
-        });
-        setMsg(
-          results.every(Boolean)
-            ? `Senha ${ev.display_number} chamada para ${ev.destination}.`
-            : `Senha ${ev.display_number} registrada; a TV deve exibir em alguns segundos.`
-        );
-      } else if (action === 'finish') setMsg(`Senha ${item.display_number} concluída.`);
-      else if (action === 'cancel') setMsg(`Senha ${item.display_number} removida.`);
+      await cmipApi.officeTicketMove(item.id, target.office_id);
+      setMoveTargets((t) => ({ ...t, [item.id]: '' }));
+      setMsg(`Senha ${item.display_number} trocada para ${target.office_name}.`);
       await load();
     } catch (e) {
       setMsg(err(e));
@@ -121,8 +97,8 @@ export function OfficeTicketBoard() {
     <Card className="lg:col-span-2">
       <h2 className="text-xl font-black">Encaminhar senha para consultório</h2>
       <p className="text-xs text-cmip-100/60 mt-1">
-        Digite a senha e escolha o consultório. Não é preciso o médico estar logado: chame a senha por aqui e
-        a TV anuncia o número e o consultório.
+        Digite a senha e escolha o consultório. Não é preciso o médico estar logado: a senha fica esperando e
+        aparece para o médico quando ele entrar no consultório. Quem chama, confirma ou cancela é o médico.
       </p>
       {loadError && (
         <p className="mt-4 text-amber-200" role="alert">
@@ -169,30 +145,27 @@ export function OfficeTicketBoard() {
                     </p>
                   </div>
                   <div className="flex gap-2">
+                    <select
+                      aria-label={`Novo consultório da senha ${item.display_number}`}
+                      className="bg-cmip-950 border border-cmip-600/50 p-3 rounded-xl"
+                      value={moveTargets[item.id] || ''}
+                      onChange={(e) => setMoveTargets({ ...moveTargets, [item.id]: e.target.value })}
+                    >
+                      <option value="">Trocar consultório</option>
+                      {offices
+                        .filter((o) => o.office_id !== office.office_id)
+                        .map((o) => (
+                          <option key={o.office_id} value={o.office_id}>
+                            {o.office_name}
+                          </option>
+                        ))}
+                    </select>
                     <Button
                       className="px-3 py-2"
-                      disabled={Boolean(busy)}
-                      onClick={() => act(office, item, 'call')}
+                      disabled={!moveTargets[item.id] || Boolean(busy)}
+                      onClick={() => move(item)}
                     >
-                      <Megaphone className="w-4 inline" /> {item.status === 'called' ? 'Rechamar' : 'Chamar'}
-                    </Button>
-                    <Button
-                      className="px-3 py-2 bg-slate-700 text-white hover:bg-slate-600"
-                      aria-label={`Concluir senha ${item.display_number}`}
-                      title="Concluir"
-                      disabled={Boolean(busy)}
-                      onClick={() => act(office, item, 'finish')}
-                    >
-                      <Check className="w-4" />
-                    </Button>
-                    <Button
-                      className="px-3 py-2 bg-cmip-red text-white hover:opacity-90"
-                      aria-label={`Remover senha ${item.display_number}`}
-                      title="Remover"
-                      disabled={Boolean(busy)}
-                      onClick={() => act(office, item, 'cancel')}
-                    >
-                      <X className="w-4" />
+                      Trocar
                     </Button>
                   </div>
                 </li>

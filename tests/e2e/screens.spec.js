@@ -148,15 +148,15 @@ test('recepção: transferência não pode ser disparada duas vezes', async ({ p
   expect(transfers).toBe(1);
 });
 
-test('recepção: encaminha senha para a caixa do consultório e chama sem médico logado', async ({ page }) => {
+test('recepção: encaminha senha ao consultório sem médico logado e só pode trocar o consultório', async ({ page }) => {
   await seedSession(page);
   const queue = [];
-  let enqueued, called;
+  let enqueued, called, moved;
   const mocks = receptionMocks({
     office_ticket_queues: () => [
       { office_id: 'o1', office_name: 'Consultório 1', items: queue.filter((x) => x.office_id === 'o1') },
-      { office_id: 'o10', office_name: 'Consultório 10', items: [] },
-      { office_id: 'o2', office_name: 'Consultório 2', items: [] },
+      { office_id: 'o10', office_name: 'Consultório 10', items: queue.filter((x) => x.office_id === 'o10') },
+      { office_id: 'o2', office_name: 'Consultório 2', items: queue.filter((x) => x.office_id === 'o2') },
     ],
     office_ticket_enqueue: (b) => {
       enqueued = b;
@@ -165,8 +165,12 @@ test('recepção: encaminha senha para a caixa do consultório e chama sem médi
     },
     office_ticket_action: (b) => {
       called = b;
-      queue[0].status = 'called';
-      return { event_key: 'o1', kind: 'ticket', display_number: '0045', destination: 'Consultório 1', is_recall: false };
+      return null;
+    },
+    office_ticket_move: (b) => {
+      moved = b;
+      queue[0].office_id = b.p_office_id;
+      return { id: 'q1', office_name: 'Consultório 2' };
     },
   });
   mocks.rest.display_panel_offices = () => [{ display_panel_id: 'p1', display_panels: { code: 'recepcao', active: true } }];
@@ -182,10 +186,49 @@ test('recepção: encaminha senha para a caixa do consultório e chama sem médi
   await dialog.getByRole('button', { name: /Consultório 1 / }).click();
   await expect(page.getByText('Senha 0045 encaminhada para Consultório 1.')).toBeVisible();
   expect(enqueued).toEqual({ p_office_id: 'o1', p_number: 45 });
+  // A recepção não chama, não confirma e não cancela: só troca o consultório.
   const row = page.getByRole('listitem').filter({ hasText: 'Senha 0045' });
-  await row.getByRole('button', { name: /^Chamar/ }).click();
-  await expect(row.getByRole('button', { name: /Rechamar/ })).toBeVisible();
-  expect(called).toEqual({ p_queue_id: 'q1', p_action: 'call' });
+  await expect(row.getByRole('button', { name: /Chamar|Rechamar|Confirmar|Cancelar|Concluir|Remover/ })).toHaveCount(0);
+  await row.getByLabel('Novo consultório da senha 0045').selectOption('o2');
+  await row.getByRole('button', { name: 'Trocar', exact: true }).click();
+  await expect(page.getByText('Senha 0045 trocada para Consultório 2.')).toBeVisible();
+  expect(moved).toEqual({ p_queue_id: 'q1', p_office_id: 'o2' });
+  expect(called).toBeUndefined();
+});
+
+test('médico: vê as senhas encaminhadas ao consultório e chama sem a recepção', async ({ page }) => {
+  await seedSession(page);
+  let called;
+  await mockSupabase(page, {
+    auth: baseAuth,
+    rest: {
+      profiles: () => profile({ role: 'doctor', full_name: 'Dr. Teste' }),
+      doctor_queue_view: () => [],
+      display_panel_offices: () => [{ display_panel_id: 'p1', display_panels: { code: 'recepcao', active: true } }],
+    },
+    rpc: {
+      available_offices: () => [{ id: 'o4', name: 'Consultório 4' }],
+      get_my_doctor_session: () => [{ session_id: 's1', doctor_id: 'd1', office_id: 'o4', office_name: 'Consultório 4' }],
+      doctor_heartbeat: () => new Date().toISOString(),
+      office_ticket_office_queue: () => [
+        { id: 'q9', ticket_number: 244, display_number: '0244', status: 'waiting' },
+      ],
+      office_ticket_action: (b) => {
+        called = b;
+        return { event_key: 'o9', kind: 'ticket', display_number: '0244', destination: 'Consultório 4', is_recall: false };
+      },
+    },
+  });
+  await page.goto('/');
+  const list = page.getByLabel('Senhas do consultório');
+  await expect(list.getByText('Senha 0244')).toBeVisible();
+  await list.getByRole('button', { name: /^Chamar/ }).click();
+  await expect(page.getByText(/Senha 0244 (chamada para Consultório 4.|registrada)/)).toBeVisible();
+  expect(called).toEqual({ p_queue_id: 'q9', p_action: 'call' });
+  page.once('dialog', (d) => d.accept());
+  await list.getByRole('button', { name: 'Cancelar senha 0244' }).click();
+  await expect.poll(() => called).toEqual({ p_queue_id: 'q9', p_action: 'cancel' });
+  await expect(list.getByRole('button', { name: 'Confirmar senha 0244' })).toBeVisible();
 });
 
 const adminMocks = (functions) => ({
