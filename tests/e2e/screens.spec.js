@@ -97,6 +97,17 @@ test('recepção: RECHAMAR continua disponível quando a última chamada do pain
   await expect(page.getByRole('button', { name: 'RECHAMAR' })).toBeEnabled();
 });
 
+test('recepção: a próxima senha acompanha sozinha quando outro computador chama', async ({ page }) => {
+  await seedSession(page);
+  let counter = { current_number: 5, next_number: 6, display_next: '0006' };
+  await mockSupabase(page, receptionMocks({ get_ticket_counter_state: () => counter }));
+  await page.goto('/');
+  await expect(page.getByText('0006', { exact: true })).toBeVisible();
+  counter = { current_number: 41, next_number: 42, display_next: '0042' };
+  await expect(page.getByText('0042', { exact: true })).toBeVisible({ timeout: 12000 });
+  await expect(page.getByText('41 / 1000')).toBeVisible();
+});
+
 test('recepção: erro ao carregar guichês aparece como mensagem, não como lista vazia', async ({ page }) => {
   await seedSession(page);
   const mocks = receptionMocks();

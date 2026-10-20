@@ -22,7 +22,8 @@ export function TicketCaller({ canResetHistory = false }) {
   const lastEventKey = useRef(null);
   const stateSeq = useRef(0);
 
-  const loadState = async (id = point, panels = linkedPanels) => {
+  // quiet: atualização de fundo (outro computador chamou); falha de rede não apaga a mensagem da tela.
+  const loadState = async (id = point, panels = linkedPanels, { quiet = false } = {}) => {
     if (!id) return;
     const mySeq = ++stateSeq.current;
     try {
@@ -36,6 +37,7 @@ export function TicketCaller({ canResetHistory = false }) {
     } catch (e) {
       if (mySeq !== stateSeq.current) return;
       console.warn('Falha ao atualizar estado do chamador', e);
+      if (quiet) return;
       setMsg(`A chamada pode ter sido registrada, mas o estado do painel não pôde ser atualizado. ${err(e)}`);
     }
   };
@@ -51,6 +53,23 @@ export function TicketCaller({ canResetHistory = false }) {
   }, []);
 
   useEffect(() => () => cmipApi.cleanupBroadcastChannels(), []);
+
+  // Mantém "próxima senha" e a senha da TV em dia quando OUTRO computador chama: sem isso, cada recepção
+  // ficava com o número da última vez que ela mesma chamou e a sequência divergia do painel.
+  const latestView = useRef({ point: '', linkedPanels: [] });
+  latestView.current = { point, linkedPanels };
+  useEffect(() => {
+    const refresh = () => {
+      const { point: p, linkedPanels: panels } = latestView.current;
+      if (p) loadState(p, panels, { quiet: true });
+    };
+    const poll = setInterval(refresh, 4000);
+    const off = cmipApi.subscribe('caller-ticket-calls', ['ticket_calls'], refresh);
+    return () => {
+      clearInterval(poll);
+      off();
+    };
+  }, []);
 
   useEffect(() => {
     if (!point) {
