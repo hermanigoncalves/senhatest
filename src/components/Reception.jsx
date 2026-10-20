@@ -5,10 +5,10 @@ import { CAPABILITIES, hasCapability } from '../utils/capabilities';
 import { createLatestGuard } from '../utils/latest';
 import { Shell } from './Shell';
 import { TicketCaller } from './TicketCaller';
-import { MAX_TICKET_NUMBER, patientLabel, ticketPatientName } from '../utils/ticketPatient';
+import { patientLabel } from '../utils/ticketPatient';
 import { statusLabel } from '../utils/labels';
-import { Search, Ticket, UserPlus } from 'lucide-react';
-import { DoctorPicker } from './DoctorPicker';
+import { Search, UserPlus } from 'lucide-react';
+import { OfficeTicketBoard } from './OfficeTicketBoard';
 import { Button, Field, Card, err } from './ui';
 
 const emptyPatient = {
@@ -24,35 +24,14 @@ const emptyPatient = {
   city: '',
   state: '',
 };
-function PatientFlow({ profile }) {
+function PatientFlow() {
   const [query, setQuery] = useState(''),
     [patients, setPatients] = useState([]),
     [selected, setSelected] = useState(null),
     [form, setForm] = useState(emptyPatient),
-    [doctors, setDoctors] = useState([]),
-    [ticketNumber, setTicketNumber] = useState(''),
     [modal, setModal] = useState(false),
     [msg, setMsg] = useState(''),
     [busy, setBusy] = useState(false);
-  const doctorsGuard = useRef(createLatestGuard());
-  const loadDoctors = async () => {
-    const mine = doctorsGuard.current.next();
-    try {
-      const list = await cmipApi.availableDoctors();
-      if (doctorsGuard.current.isLatest(mine)) setDoctors(list);
-    } catch (e) {
-      if (doctorsGuard.current.isLatest(mine)) setMsg(err(e));
-    }
-  };
-  useEffect(() => {
-    loadDoctors();
-    const poll = setInterval(loadDoctors, 15000);
-    const off = cmipApi.subscribe('reception-doctors', ['doctor_sessions'], loadDoctors);
-    return () => {
-      clearInterval(poll);
-      off();
-    };
-  }, []);
   const search = async () => {
     try {
       setMsg('');
@@ -100,60 +79,8 @@ function PatientFlow({ profile }) {
       setBusy(false);
     }
   };
-  const enqueueTicket = async (doctorId) => {
-    const name = ticketPatientName(ticketNumber);
-    if (!name || busy) {
-      if (!name) setMsg(`Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`);
-      return;
-    }
-    setBusy(true);
-    try {
-      await cmipApi.enqueueByTicket(
-        ticketNumber,
-        doctorId,
-        hasCapability(profile.role, CAPABILITIES.RECEPTION_SUPERUSER)
-      );
-      setMsg(`${patientLabel(name)} encaminhada com sucesso.`);
-      setTicketNumber('');
-      await loadDoctors();
-    } catch (e) {
-      setMsg(err(e));
-    } finally {
-      setBusy(false);
-    }
-  };
   return (
     <Card className="lg:col-span-2">
-      <div className="mb-6 pb-6 border-b border-cmip-600/30">
-        <h2 className="text-xl font-black flex gap-2">
-          <Ticket /> Encaminhar por senha
-        </h2>
-        <p className="text-xs text-cmip-100/60 mt-1">
-          O paciente é chamado pelo número da senha, na TV, na voz e no consultório.
-        </p>
-        <div className="flex gap-2 mt-3 max-w-xs">
-          <Field
-            aria-label="Número da senha"
-            type="number"
-            min="1"
-            max={MAX_TICKET_NUMBER}
-            placeholder="Nº da senha"
-            value={ticketNumber}
-            onChange={(e) => setTicketNumber(e.target.value)}
-          />
-        </div>
-        {ticketNumber !== '' && !ticketPatientName(ticketNumber) && (
-          <p className="text-xs text-amber-200 mt-2">Senha deve ser um número de 1 a {MAX_TICKET_NUMBER}.</p>
-        )}
-        {ticketPatientName(ticketNumber) && (
-          <div className="mt-3">
-            <p className="text-sm font-bold mb-2">
-              Encaminhar {patientLabel(ticketPatientName(ticketNumber))} para:
-            </p>
-            <DoctorPicker doctors={doctors} busy={busy} onPick={enqueueTicket} />
-          </div>
-        )}
-      </div>
       <div className="flex flex-wrap justify-between gap-3 items-center">
         <h2 className="text-xl font-black flex gap-2">
           <UserPlus /> Cadastro de pacientes
@@ -396,7 +323,8 @@ export function Reception({ profile }) {
     <Shell profile={profile}>
       <div className="grid lg:grid-cols-2 gap-6">
         <TicketCaller canResetHistory={hasCapability(profile.role, CAPABILITIES.RECEPTION_SUPERUSER)} />
-        <PatientFlow profile={profile} />
+        <OfficeTicketBoard />
+        <PatientFlow />
         <TransferQueue />
       </div>
     </Shell>

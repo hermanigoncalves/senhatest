@@ -18,6 +18,8 @@ Obrigatórias em qualquer ambiente: o build falha sem elas e não há fallback p
 5. `20261003120000_*` e `20261003120100_*` — apenas marcadores (já aplicados no CMIPtst; sem SQL)
 6. `20261008120000_v1_review_fixes.sql` — **ainda não aplicada**: auditoria de usuários, trava contra chamada
    duplicada concorrente, fila delegada sem duplicação e estado público da TV com lista de permissão de campos.
+7. `20261020120000_office_ticket_queue.sql` — **ainda não aplicada** (requer a 6): fila de senhas por consultório sem
+   médico logado (caixas na recepção) e TV pública mesclando essas chamadas.
 
 Aplicar sempre primeiro no CMIPtst e validar. Teste local descartável: `supabase/tests/run_local.sh`.
 

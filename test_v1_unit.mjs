@@ -79,7 +79,7 @@ console.log('V1 unit tests: OK');
   assert(app.includes('+ Cadastrar paciente'), 'Reception must expose patient registration as an action');
   assert(app.includes('Cadastrar paciente'), 'Patient registration modal must exist');
   assert(app.includes('Paciente selecionado'), 'Reception must show selected patient summary');
-  assert(app.includes('Nenhum médico disponível no momento.'), 'Reception must show empty doctor availability state');
+  assert(app.includes('Nenhum consultório ativo cadastrado.'), 'Reception must show empty office state');
 }
 
 
@@ -90,7 +90,6 @@ console.log('V1 unit tests: OK');
   assert(api.includes("doctor_heartbeat"), 'Doctor frontend must send authenticated heartbeat');
   assert(api.includes("end_doctor_session"), 'Doctor logout must end active medical session');
   assert(app.includes('createTicker(beat, 15000)'), 'Doctor heartbeat interval must be 15 seconds');
-  assert(app.includes('setInterval(loadDoctors, 15000)'), 'Reception must periodically re-evaluate doctor presence');
   assert(app.includes("profile.role === 'doctor'"), 'Shell logout must use doctor-specific immediate session shutdown');
 }
 
@@ -427,6 +426,7 @@ console.log('Infrastructure review tests: PASS');
   assert.equal(phrase, 'Senha 45. Consultório 2.');
   assert(isRemoteTtsPhraseAllowed(phrase), 'frase de senha não contém nome e pode usar o TTS online');
   assert.equal(formatTextForSpeech({ kind: 'medical', patientName: 'Maria S.', officeName: 'Consultório 2' }), 'Atenção. Paciente Maria S., dirigir-se ao Consultório 2.');
-  assert(apiSource.includes('enqueueByTicket'), 'API deve encaminhar por senha');
+  assert(apiSource.includes("office_ticket_enqueue"), 'API deve encaminhar senha para o consultório');
+  assert(apiSource.includes("office_ticket_action"), 'API deve chamar/concluir senha do consultório');
   console.log('Ticket patient tests: OK');
 }

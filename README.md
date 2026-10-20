@@ -41,10 +41,12 @@ tests/e2e/               Playwright
 ## Fluxo da senha
 
 1. Recepção chama a senha no guichê (TV e voz: "Senha 45").
-2. Recepção encaminha **pela senha** ao médico (`SENHA-0045`); o paciente é chamado pelo número em todo o fluxo
-   (fila do médico, TV, voz e consultório). O cadastro de pacientes não é mais um caminho de encaminhamento.
-3. O médico abre a tela e o último consultório usado é reativado sozinho; ele só usa **Chamar → Finalizar**
-   (Rechamar, Ausente e Voltar para a fila ficam em "Mais ações").
+2. Recepção encaminha a senha para um **consultório**: há uma caixa por consultório ativo; digita o número na caixa,
+   clica **Encaminhar** e depois **Chamar** (ou Rechamar / Concluir / Remover). Não precisa de médico logado: a TV
+   anuncia "Senha 45. Consultório 1." (tabelas `office_ticket_queue` / `office_ticket_calls`). A mesma senha não
+   pode estar em duas caixas no mesmo dia; senhas de dias anteriores deixam de aparecer.
+3. O médico, quando usa o sistema, segue com a fila própria (**Chamar → Finalizar**); a caixa do consultório é
+   operada pela recepção.
 
 ## TV (painel público)
 

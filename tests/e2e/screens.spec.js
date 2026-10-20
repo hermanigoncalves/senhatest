@@ -84,6 +84,7 @@ const receptionMocks = (extra = {}) => ({
       history: [],
     }),
     list_available_doctors: () => [],
+    office_ticket_queues: () => [],
     ...extra,
   },
 });
@@ -145,6 +146,40 @@ test('recepção: transferência não pode ser disparada duas vezes', async ({ p
   await button.click({ force: true }).catch(() => {});
   await expect(page.getByText('transferido com sucesso')).toBeVisible();
   expect(transfers).toBe(1);
+});
+
+test('recepção: encaminha senha para a caixa do consultório e chama sem médico logado', async ({ page }) => {
+  await seedSession(page);
+  const queue = [];
+  let enqueued, called;
+  const mocks = receptionMocks({
+    office_ticket_queues: () => [
+      { office_id: 'o1', office_name: 'Consultório 1', items: queue.filter((x) => x.office_id === 'o1') },
+      { office_id: 'o2', office_name: 'Consultório 2', items: [] },
+    ],
+    office_ticket_enqueue: (b) => {
+      enqueued = b;
+      queue.push({ id: 'q1', office_id: b.p_office_id, display_number: '0045', status: 'waiting' });
+      return { id: 'q1', display_number: '0045' };
+    },
+    office_ticket_action: (b) => {
+      called = b;
+      queue[0].status = 'called';
+      return { event_key: 'o1', kind: 'ticket', display_number: '0045', destination: 'Consultório 1', is_recall: false };
+    },
+  });
+  mocks.rest.display_panel_offices = () => [{ display_panel_id: 'p1', display_panels: { code: 'recepcao', active: true } }];
+  await mockSupabase(page, mocks);
+  await page.goto('/');
+  const box = page.getByLabel('Caixa Consultório 1');
+  await expect(page.getByLabel('Caixa Consultório 2')).toBeVisible();
+  await box.getByLabel('Senha para Consultório 1').fill('45');
+  await box.getByRole('button', { name: 'Encaminhar' }).click();
+  await expect(page.getByText('Senha 0045 encaminhada para Consultório 1.')).toBeVisible();
+  expect(enqueued).toEqual({ p_office_id: 'o1', p_number: 45 });
+  await box.getByRole('button', { name: /Chamar/ }).click();
+  await expect(box.getByRole('button', { name: /Rechamar/ })).toBeVisible();
+  expect(called).toEqual({ p_queue_id: 'q1', p_action: 'call' });
 });
 
 const adminMocks = (functions) => ({
