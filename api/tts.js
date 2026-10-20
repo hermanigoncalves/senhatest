@@ -22,17 +22,20 @@ export default async function handler(req, res) {
     return res.status(422).json({ error: 'Texto não permitido para síntese online.' });
   }
 
+  // O Google recusa User-Agent curto vindo do servidor; precisa parecer um Chrome completo.
+  const userAgent =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   const providers = [
     {
       url: `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=pt-BR&client=tw-ob`,
       headers: {
-        'User-Agent': 'Mozilla/5.0',
+        'User-Agent': userAgent,
         Referer: 'https://translate.google.com/',
       },
     },
     {
       url: `https://api.streamelements.com/kappa/v2/speech?voice=Vitoria&text=${encodeURIComponent(text)}`,
-      headers: { 'User-Agent': 'Mozilla/5.0' },
+      headers: { 'User-Agent': userAgent },
     },
   ];
 

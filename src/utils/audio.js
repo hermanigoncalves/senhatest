@@ -314,17 +314,22 @@ export async function checkTtsAvailability(forceProbe = false) {
   return isServerTtsAvailable;
 }
 
-export function speakTicketViaEndpoint(phrase) {
+// Último recurso para senha numérica: o próprio navegador da TV pede o áudio ao Google. O servidor da Vercel
+// (IP de datacenter) costuma ser bloqueado pelo Google, enquanto a rede da clínica não. Só frases já liberadas.
+export const directTtsUrl = (phrase) =>
+  `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(phrase)}&tl=pt-BR&client=tw-ob`;
+
+export function speakTicketViaEndpoint(phrase, { direct = false } = {}) {
   return new Promise((resolve, reject) => {
     if (!isRemoteTtsPhraseAllowed(phrase)) {
       return reject(new Error('Frase com dados pessoais não pode usar TTS remoto'));
     }
-    if (isServerTtsAvailable === false) {
+    if (!direct && isServerTtsAvailable === false) {
       return reject(new Error('TTS remoto desativado/indisponível'));
     }
 
     try {
-      const url = `/api/tts?text=${encodeURIComponent(phrase)}`;
+      const url = direct ? directTtsUrl(phrase) : `/api/tts?text=${encodeURIComponent(phrase)}`;
       const audio = new Audio(url);
       audio.volume = 1.0;
       if (typeof window !== 'undefined') {
@@ -639,7 +644,17 @@ export async function speakTicket(
     }
   }
 
-  // 3. Fallback imediato para voz nativa do navegador
+  // 3. Servidor sem TTS: a TV pede o áudio direto ao Google (só senha numérica, nunca nome)
+  if (remoteAllowed) {
+    try {
+      await speakTicketViaEndpoint(phrase, { direct: true });
+      return;
+    } catch (err) {
+      console.warn('[TTS Direct Warning]', err?.message || err);
+    }
+  }
+
+  // 4. Fallback imediato para voz nativa do navegador
   try {
     await speakTicketNative(phrase, { localOnly: !remoteAllowed });
   } catch (nativeErr) {
