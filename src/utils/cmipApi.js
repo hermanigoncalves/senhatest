@@ -113,8 +113,6 @@ export const cmipApi = {
     await rpcOr('set_next_global_ticket', { p_number: Number(n) }, () => null);
     return r;
   },
-  searchPatients: (term = '') => rpc('search_patients', { p_term: term }),
-  savePatient: (patient) => rpc('save_patient', { p_patient: patient }),
   availableDoctors: () => rpc('list_available_doctors'),
   enqueue: (patientId, doctorId, delegated = false) =>
     rpc(delegated ? 'admin_enqueue_patient' : 'enqueue_patient', {

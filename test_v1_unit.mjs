@@ -76,9 +76,7 @@ console.log('V1 unit tests: OK');
   assert(apiSource.includes("list_available_doctors"), 'Reception must use reduced doctor availability RPC');
   assert(apiSource.includes("get_my_doctor_session"), 'Doctor UI must load its active session explicitly');
   assert(app.includes('Online •'), 'Doctor must show visible online/session state');
-  assert(app.includes('+ Cadastrar paciente'), 'Reception must expose patient registration as an action');
-  assert(app.includes('Cadastrar paciente'), 'Patient registration modal must exist');
-  assert(app.includes('Paciente selecionado'), 'Reception must show selected patient summary');
+  assert(!app.includes('Cadastrar paciente'), 'Reception no longer registers patients (removed 2026-10-30)');
   assert(app.includes('Nenhum consultório ativo cadastrado.'), 'Reception must show empty office state');
 }
 

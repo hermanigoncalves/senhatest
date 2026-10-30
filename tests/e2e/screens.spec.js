@@ -153,18 +153,6 @@ test('recepção: erro ao carregar guichês aparece como mensagem, não como lis
   await expect(page.getByText(/permission denied/)).toBeVisible();
 });
 
-test('recepção: CPF inválido é bloqueado no cadastro', async ({ page }) => {
-  await seedSession(page);
-  await mockSupabase(page, receptionMocks());
-  await page.goto('/');
-  await page.getByRole('button', { name: '+ Cadastrar paciente' }).click();
-  await page.getByPlaceholder('Nome completo *').fill('Paciente E2E');
-  await page.locator('input[type=date]').fill('1990-01-01');
-  await page.getByPlaceholder('CPF', { exact: true }).fill('11111111111');
-  await page.getByRole('button', { name: 'Salvar paciente' }).click();
-  await expect(page.getByText('CPF inválido.')).toBeVisible();
-});
-
 test('recepção: transferência não pode ser disparada duas vezes', async ({ page }) => {
   await seedSession(page);
   let transfers = 0;
