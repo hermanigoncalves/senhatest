@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { createLatestGuard } from '../utils/latest';
-import { runOfficeTicketAction } from '../utils/officeTicketCall';
+import { runOfficeTicketAction, ticketLabel } from '../utils/officeTicketCall';
 import { Megaphone, Check, X } from 'lucide-react';
 import { Button, err } from './ui';
 
@@ -56,7 +56,8 @@ export function OfficeTicketList({ officeId, officeName }) {
           {items.map((item) => (
             <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
               <div>
-                <b className="text-lg">Senha {item.display_number}</b>
+                <b className="text-lg">{ticketLabel(item)}</b>
+                {item.display_number && item.patient_name && <p className="text-base">{item.patient_name}</p>}
                 <p className="text-sm text-cmip-100/60">
                   {item.status === 'called' ? 'Chamada' : 'Aguardando'}
                 </p>
@@ -74,17 +75,17 @@ export function OfficeTicketList({ officeId, officeName }) {
                   disabled={Boolean(busy)}
                   onClick={() => act(item, 'finish')}
                   className="flex items-center gap-2 bg-slate-700 text-white hover:bg-slate-600"
-                  aria-label={`Confirmar senha ${item.display_number}`}
+                  aria-label={`Confirmar ${ticketLabel(item)}`}
                 >
                   <Check className="w-4" aria-hidden="true" /> Confirmar
                 </Button>
                 <Button
                   disabled={Boolean(busy)}
                   onClick={() => {
-                    if (window.confirm(`Cancelar a senha ${item.display_number}?`)) act(item, 'cancel');
+                    if (window.confirm(`Cancelar ${ticketLabel(item)}?`)) act(item, 'cancel');
                   }}
                   className="flex items-center gap-2 bg-cmip-red text-white hover:opacity-90"
-                  aria-label={`Cancelar senha ${item.display_number}`}
+                  aria-label={`Cancelar ${ticketLabel(item)}`}
                 >
                   <X className="w-4" aria-hidden="true" /> Cancelar
                 </Button>

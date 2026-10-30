@@ -33,6 +33,8 @@ export default function V1TvPanel({ slug }) {
   // primeiro render; por isso o estado de ativação precisa de uma ref para ser lido de dentro da fila.
   const activatedRef = useRef(false);
   const loadSeq = useRef(0);
+  // Horário (do banco) da chamada mais nova já vista pelo polling; broadcasts não alteram (relógio do cliente).
+  const lastServerAt = useRef(-Infinity);
 
   const markActivated = () => {
     activatedRef.current = true;
@@ -151,16 +153,34 @@ export default function V1TvPanel({ slug }) {
 
       const next = normalize(s.current ? { ...s.current, source: origin } : null);
       const hist = (s.history || []).map((h) => normalize({ ...h, source: origin })).filter(Boolean);
+      const all = [next, ...hist].filter(Boolean);
+      // Instante (relógio do banco) do evento mais novo já conhecido nesta consulta.
+      const newestAt = Math.max(-Infinity, ...all.map((e) => e.atMs ?? -Infinity));
 
       if (first.current) {
         first.current = false;
-        if (next) seen.current.add(next.event_key);
+        // Tudo o que já estava no painel ao abrir é passado: nada disso pode ser anunciado depois.
+        all.forEach((e) => seen.current.add(e.event_key));
+        if (Number.isFinite(newestAt)) lastServerAt.current = newestAt;
         setCurrent(next);
         setHistory(hist);
         return;
       }
 
-      if (next && announce) enqueue(next, origin);
+      if (announce) {
+        // Anuncia, em ordem cronológica, toda chamada nova desde a última consulta — não só a mais recente.
+        // Um evento mais antigo que o último conhecido (o "atual" voltou atrás porque uma chamada foi apagada
+        // ou saiu da janela) nunca é anunciado.
+        all
+          .filter(
+            (e) =>
+              !seen.current.has(e.event_key) &&
+              (e.atMs === null ? e === next : e.atMs > lastServerAt.current)
+          )
+          .sort((a, b) => (a.atMs ?? Infinity) - (b.atMs ?? Infinity))
+          .forEach((e) => enqueue(e, origin));
+      }
+      if (Number.isFinite(newestAt)) lastServerAt.current = Math.max(lastServerAt.current, newestAt);
       if (!next && !announcementProcessing.current && announcementQueue.current.length === 0)
         setCurrent(null);
       if (!announcementProcessing.current && announcementQueue.current.length === 0) setHistory(hist);
@@ -212,6 +232,14 @@ export default function V1TvPanel({ slug }) {
     const off = cmipApi.subscribeDisplay(slug, {
       onBroadcast: (payload) => {
         if (!payload) return;
+        // Isolamento: esta TV só anuncia o que foi endereçado ao painel dela.
+        // Remetente com versão antiga (sem "panel"): não confia no conteúdo, só consulta o banco na hora,
+        // que devolve apenas as chamadas deste painel.
+        if (payload.panel === undefined) {
+          load({ announce: true, origin: 'broadcast-legacy' });
+          return;
+        }
+        if (payload.panel !== slug) return;
         latencyLog('tv-event-received', performance.now(), payload.event_key, payload.display_number);
         telemetry.mark(payload.event_key, 'T4', {
           source: 'broadcast',
@@ -309,8 +337,8 @@ export default function V1TvPanel({ slug }) {
   const displayName = current
     ? isTicketCall
       ? current.ticketNumber
-      : isMedical
-        ? current.patientName
+      : isMedical || current.patientName
+        ? current.patientName || current.number
         : current.number
     : '----';
   const location = current?.officeName || current?.desk || 'Aguardando chamada';
@@ -432,7 +460,11 @@ export default function V1TvPanel({ slug }) {
                   className="p-2 rounded-xl bg-cmip-950/80 border border-cmip-600/40 overflow-hidden"
                 >
                   <div className="text-xs md:text-sm font-black truncate">
-                    {x.ticketNumber ? x.ticketNumber : x.kind === 'medical' ? x.patientName : x.number}
+                    {x.ticketNumber
+                      ? x.ticketNumber
+                      : x.kind === 'medical' || x.patientName
+                        ? x.patientName || x.number
+                        : x.number}
                   </div>
                   <div className="text-[10px] font-bold text-amber-300 truncate">
                     {x.officeName || x.desk}

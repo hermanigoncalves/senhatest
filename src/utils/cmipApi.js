@@ -128,8 +128,16 @@ export const cmipApi = {
   // Recepção: troca o consultório de uma senha ainda na caixa (não chama nem cancela).
   officeTicketMove: (queueId, officeId) =>
     rpc('office_ticket_move', { p_queue_id: queueId, p_office_id: officeId }),
-  officeTicketEnqueue: (officeId, number) =>
-    rpc('office_ticket_enqueue', { p_office_id: officeId, p_number: Number(number) }),
+  // patientName é opcional. Sem a migration 20261024120000 o banco ainda não aceita o nome: cai na versão antiga.
+  officeTicketEnqueue: (officeId, number, patientName = '') => {
+    // number vazio = só o nome (migration 20261024140000); o banco exige pelo menos um dos dois.
+    const base = { p_office_id: officeId, p_number: number ? Number(number) : null };
+    const name = String(patientName || '').trim();
+    if (!name) return rpc('office_ticket_enqueue', base);
+    return rpcOr('office_ticket_enqueue', { ...base, p_patient_name: name }, () =>
+      rpc('office_ticket_enqueue', base)
+    );
+  },
   // action: 'call' (chama ou rechama), 'finish' ou 'cancel'. Em 'call' devolve o evento da TV.
   officeTicketAction: (queueId, action) =>
     rpc('office_ticket_action', { p_queue_id: queueId, p_action: action }),
@@ -321,7 +329,8 @@ export const cmipApi = {
       const result = await channel.send({
         type: 'broadcast',
         event: 'ticket-called',
-        payload,
+        // A TV confere este campo e descarta o que não é do painel dela.
+        payload: { ...payload, panel: targetSlug },
       });
       return result === 'ok';
     } catch (err) {

@@ -38,5 +38,7 @@ export function normalizeTvEvent(e) {
     t3_timestamp: e.t3_timestamp || null,
     source: e.source || 'unknown',
     timestamp: e.at ? timeLabel(e.at) : e.timestamp || timeLabel(Date.now()),
+    // Instante do evento em ms (null se ausente/ inválido): a TV usa para não anunciar chamadas mais antigas.
+    atMs: e.at && Number.isFinite(Date.parse(e.at)) ? Date.parse(e.at) : null,
   };
 }

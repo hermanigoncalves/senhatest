@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { createLatestGuard } from '../utils/latest';
 import { MAX_TICKET_NUMBER, parseTicketNumber } from '../utils/ticketPatient';
+import { ticketLabel } from '../utils/officeTicketCall';
 import { Button, Field, Card, err } from './ui';
 
 // Uma caixa por consultório: a recepção encaminha a senha para o consultório e chama de lá.
@@ -9,6 +10,7 @@ import { Button, Field, Card, err } from './ui';
 export function OfficeTicketBoard() {
   const [offices, setOffices] = useState([]),
     [ticketNumber, setTicketNumber] = useState(''),
+    [patientName, setPatientName] = useState(''),
     [picking, setPicking] = useState(false),
     [moveTargets, setMoveTargets] = useState({}),
     [busy, setBusy] = useState(''),
@@ -50,20 +52,34 @@ export function OfficeTicketBoard() {
     };
   }, []);
 
+  // Pelo menos um dos dois: senha ou nome. Se a senha foi digitada, precisa ser válida.
+  const formProblem = () => {
+    if (ticketNumber && !parseTicketNumber(ticketNumber))
+      return `Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`;
+    if (!ticketNumber && patientName.trim().length < 2) return 'Informe a senha ou o nome do paciente.';
+    return '';
+  };
+
   const enqueue = async (office) => {
     const n = parseTicketNumber(ticketNumber);
-    if (!n) {
-      setMsg(`Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`);
+    const problem = formProblem();
+    if (problem) {
+      setMsg(problem);
       return;
     }
     if (busy) return;
     setBusy(`enqueue:${office.office_id}`);
     setMsg('');
     try {
-      const r = await cmipApi.officeTicketEnqueue(office.office_id, n);
+      const r = await cmipApi.officeTicketEnqueue(office.office_id, n || '', patientName);
       setTicketNumber('');
+      setPatientName('');
       setPicking(false);
-      setMsg(`Senha ${r?.display_number || n} encaminhada para ${office.office_name}.`);
+      const sent = {
+        display_number: r?.display_number || (n ? String(n).padStart(4, '0') : ''),
+        patient_name: patientName.trim(),
+      };
+      setMsg(`${ticketLabel(sent)} encaminhada para ${office.office_name}.`);
       await load();
     } catch (e) {
       setMsg(err(e));
@@ -81,7 +97,7 @@ export function OfficeTicketBoard() {
     try {
       await cmipApi.officeTicketMove(item.id, target.office_id);
       setMoveTargets((t) => ({ ...t, [item.id]: '' }));
-      setMsg(`Senha ${item.display_number} trocada para ${target.office_name}.`);
+      setMsg(`${ticketLabel(item)} trocada para ${target.office_name}.`);
       await load();
     } catch (e) {
       setMsg(err(e));
@@ -106,10 +122,11 @@ export function OfficeTicketBoard() {
         </p>
       )}
       <form
-        className="flex gap-2 mt-4 max-w-md"
+        className="flex flex-wrap gap-2 mt-4 max-w-2xl"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!validNumber) setMsg(`Informe uma senha entre 1 e ${MAX_TICKET_NUMBER}.`);
+          const problem = formProblem();
+          if (problem) setMsg(problem);
           else if (offices.length) setPicking(true);
         }}
       >
@@ -122,7 +139,18 @@ export function OfficeTicketBoard() {
           value={ticketNumber}
           onChange={(e) => setTicketNumber(e.target.value)}
         />
-        <Button disabled={!ticketNumber || !loaded || offices.length === 0}>Encaminhar</Button>
+        <Field
+          aria-label="Nome do paciente"
+          type="text"
+          maxLength={120}
+          autoComplete="off"
+          placeholder="Nome do paciente"
+          value={patientName}
+          onChange={(e) => setPatientName(e.target.value)}
+        />
+        <Button disabled={(!ticketNumber && !patientName.trim()) || !loaded || offices.length === 0}>
+          Encaminhar
+        </Button>
       </form>
       {loaded && offices.length === 0 && !loadError && (
         <p className="text-cmip-100/60 mt-3">Nenhum consultório ativo cadastrado.</p>
@@ -136,7 +164,8 @@ export function OfficeTicketBoard() {
               office.items.map((item) => (
                 <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div>
-                    <b className="text-lg">Senha {item.display_number}</b>
+                    <b className="text-lg">{ticketLabel(item)}</b>
+                    {item.display_number && item.patient_name && <p className="text-sm">{item.patient_name}</p>}
                     <p className="text-xs text-cmip-100/60">
                       {office.office_name} ·{' '}
                       <span className={item.status === 'called' ? 'text-amber-300' : ''}>
@@ -146,7 +175,7 @@ export function OfficeTicketBoard() {
                   </div>
                   <div className="flex gap-2">
                     <select
-                      aria-label={`Novo consultório da senha ${item.display_number}`}
+                      aria-label={`Novo consultório de ${ticketLabel(item)}`}
                       className="bg-cmip-950 border border-cmip-600/50 p-3 rounded-xl"
                       value={moveTargets[item.id] || ''}
                       onChange={(e) => setMoveTargets({ ...moveTargets, [item.id]: e.target.value })}
@@ -180,7 +209,7 @@ export function OfficeTicketBoard() {
         </p>
       )}
 
-      {picking && validNumber && (
+      {picking && !formProblem() && (
         <div
           className="fixed inset-0 z-50 bg-black/70 grid place-items-center p-4"
           onMouseDown={(e) => {
@@ -195,7 +224,11 @@ export function OfficeTicketBoard() {
           >
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-black">
-                Encaminhar Senha {String(validNumber).padStart(4, '0')} para:
+                Encaminhar{' '}
+                {[validNumber ? `Senha ${String(validNumber).padStart(4, '0')}` : '', patientName.trim()]
+                  .filter(Boolean)
+                  .join(' · ')}{' '}
+                para:
               </h2>
               <button
                 onClick={() => setPicking(false)}

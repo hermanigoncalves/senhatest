@@ -151,7 +151,8 @@ export function TicketCaller({ canResetHistory = false }) {
           : String(fallbackNumber || 1).padStart(4, '0'));
       telemetry.mark(eventKey, 'T2', { displayNumber });
 
-      const panelsToSend = linkedPanels && linkedPanels.length > 0 ? linkedPanels : [DEFAULT_PANEL];
+      // Só as TVs ligadas ao guichê; sem vínculo, nenhuma outra TV recebe o aviso.
+      const panelsToSend = linkedPanels || [];
       const pointObj = points.find((p) => p.id === point);
       const pointName = pointObj?.name || 'Guichê';
       const t3_timestamp = Date.now();
