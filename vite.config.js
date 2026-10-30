@@ -48,6 +48,14 @@ function requireSupabaseEnv(mode, command) {
   const env = { ...loadEnv(mode, process.cwd(), 'VITE_'), ...process.env };
   const url = env.VITE_SUPABASE_URL;
   const key = env.VITE_SUPABASE_PUBLISHABLE_KEY || env.VITE_SUPABASE_ANON_KEY;
+  // Diagnóstico de build (só presença, nunca valores): mostra no log da Vercel o que chegou ao build.
+  console.log('[build env]', {
+    vercelEnv: process.env.VERCEL_ENV || '(local)',
+    branch: process.env.VERCEL_GIT_COMMIT_REF || '(local)',
+    VITE_SUPABASE_URL: Boolean(env.VITE_SUPABASE_URL),
+    VITE_SUPABASE_PUBLISHABLE_KEY: Boolean(env.VITE_SUPABASE_PUBLISHABLE_KEY),
+    VITE_SUPABASE_ANON_KEY: Boolean(env.VITE_SUPABASE_ANON_KEY),
+  });
   if (!url || !key) {
     throw new Error(
       'Build abortado: defina VITE_SUPABASE_URL e VITE_SUPABASE_PUBLISHABLE_KEY (veja .env.example).'
