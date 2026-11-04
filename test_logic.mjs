@@ -14,6 +14,7 @@ import {
   prepareTtsAudio,
   _resetFullyTtsForTest,
   nameVoiceStatus,
+  speechPhraseFor,
 } from './src/utils/audio.js';
 import { normalizeTvEvent, stableEventKey } from './src/utils/tvEvents.js';
 import { freeOffices, pickDeviceSession } from './src/utils/doctorOffice.js';
@@ -504,6 +505,33 @@ await test('rótulos em português para status da fila e perfis', () => {
   assert.equal(roleLabel('receptionist'), 'Recepção');
   assert.equal(roleLabel('doctor'), 'Médico');
   assert.equal(roleLabel(undefined), '');
+});
+
+await test('TV sem voz no aparelho fala a senha e o consultório sem o nome (voz online)', () => {
+  const call = { number: '0412', patientName: 'REGINA HELENA', officeName: 'Consultório 2' };
+  // Sem voz local (ex.: Fully sem JavaScript Interface): só senha e consultório, que podem ir ao TTS online.
+  assert.equal(speechPhraseFor(call, undefined, 'none'), 'Senha 412. Consultório 2.');
+  assert.equal(isRemoteTtsPhraseAllowed(speechPhraseFor(call, undefined, 'none')), true);
+  // Com voz no aparelho, o nome continua sendo falado (só localmente).
+  assert.equal(
+    speechPhraseFor(call, undefined, 'local'),
+    'Senha 412. Paciente REGINA HELENA, dirigir-se ao Consultório 2.'
+  );
+  assert.equal(
+    speechPhraseFor(call, undefined, 'fully'),
+    'Senha 412. Paciente REGINA HELENA, dirigir-se ao Consultório 2.'
+  );
+  // Só o nome, sem senha: não há frase sem nome possível; mantém a frase original (voz local, se houver).
+  const onlyName = { number: '', patientName: 'REGINA HELENA', officeName: 'Consultório 2' };
+  assert.equal(
+    speechPhraseFor(onlyName, undefined, 'none'),
+    'Atenção. Paciente REGINA HELENA, dirigir-se ao Consultório 2.'
+  );
+  // Senha de guichê comum não muda.
+  assert.equal(
+    speechPhraseFor({ number: '0002', desk: 'Guichê 1' }, undefined, 'none'),
+    'Senha 2. Guichê 1.'
+  );
 });
 
 console.log(`Logic tests: OK (${count} grupos)`);

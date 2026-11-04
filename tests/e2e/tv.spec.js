@@ -7,14 +7,14 @@ const ticket = (n, key) => ({
   kind: 'ticket',
   display_number: n,
   destination: 'Guichê 1',
-  at: new Date().toISOString(),
+  at: new Date(Date.now() - 60000).toISOString(),
 });
 const medical = (key) => ({
   event_key: key,
   kind: 'medical',
   patient_name: 'Maria S.',
   destination: 'Sala 3',
-  at: new Date().toISOString(),
+  at: new Date(Date.now() - 60000).toISOString(),
 });
 
 // Estado da TV: o 1º retorno é o boot; a partir do 2º ciclo de polling (10s), devolve a nova chamada.
@@ -22,7 +22,9 @@ function panelSequence(boot, next) {
   const startedAt = { t: 0 };
   return () => {
     if (!startedAt.t) startedAt.t = Date.now();
-    const current = Date.now() - startedAt.t > 4000 ? next : boot;
+    // A chamada nova tem horário posterior ao do boot: a TV só anuncia o que é mais novo que o já visto.
+    const current =
+      Date.now() - startedAt.t > 4000 ? { ...next, at: new Date(Date.now()).toISOString() } : boot;
     return { panel: PANEL, current, history: [boot] };
   };
 }
@@ -249,3 +251,18 @@ for (const [width, height] of [
     expect(video.x + video.width).toBeLessThanOrEqual(width);
   });
 }
+
+test('TV sem voz no aparelho (Fully sem JavaScript Interface) fala senha e consultório pela voz online, sem o nome', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    if (window.speechSynthesis) window.speechSynthesis.getVoices = () => [];
+  });
+  const call = { ...officeCall(0, 'o7'), display_number: '0412' };
+  const ttsRequests = await setup(page, panelSequence(ticket('0001', 't1'), call));
+  await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
+  await page.getByText('ATIVAR PAINEL').click();
+  await expect(page.getByTestId('tv-current-patient')).toHaveText('REGINA HELENA', { timeout: 20000 });
+  await expect.poll(() => ttsRequests, { timeout: 10000 }).toContain('Senha 412. Consultório 2.');
+  expect(ttsRequests.filter((t) => /REGINA|Paciente/i.test(t))).toEqual([]);
+});

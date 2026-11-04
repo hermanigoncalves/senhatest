@@ -679,9 +679,21 @@ export async function speakTicket(
   }
 }
 
+// Frase falada na TV. O nome do paciente só é falado pela voz do próprio aparelho (Fully ou voz pt-BR local).
+// Sem essa voz (ex.: Fully Kiosk sem a JavaScript Interface, WebView do Android TV), a chamada ficava muda;
+// agora fala só a senha e o consultório, que podem ir ao TTS online sem expor o nome.
+export function speechPhraseFor(ticketOrNumber, desk, voiceStatus = nameVoiceStatus()) {
+  const phrase = formatTextForSpeech(ticketOrNumber, desk);
+  if (voiceStatus !== 'none' || isRemoteTtsPhraseAllowed(phrase)) return phrase;
+  if (!ticketOrNumber || typeof ticketOrNumber !== 'object') return phrase;
+  const withoutName = formatTextForSpeech({ ...ticketOrNumber, patientName: '', patient_name: '' }, desk);
+  const hasNumber = String(ticketOrNumber.number || ticketOrNumber.rawNumber || '').replace(/^0+/, '') !== '';
+  return hasNumber && isRemoteTtsPhraseAllowed(withoutName) ? withoutName : phrase;
+}
+
 export async function announceTicket(ticketOrNumber, desk, { onChimeStart, onSpeechStart } = {}) {
   unlockAudio();
-  const phrase = formatTextForSpeech(ticketOrNumber, desk);
+  const phrase = speechPhraseFor(ticketOrNumber, desk);
 
   // Problema 6: Dispara preparação do TTS remoto em paralelo com o toque da campainha
   const { audio: preloadedAudio, readyPromise } = prepareTtsAudio(phrase);
