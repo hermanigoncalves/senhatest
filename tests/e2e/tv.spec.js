@@ -252,7 +252,7 @@ for (const [width, height] of [
   });
 }
 
-test('TV sem voz no aparelho (Fully sem JavaScript Interface) fala senha e consultório pela voz online, sem o nome', async ({
+test('TV sem voz no aparelho (Fully sem JavaScript Interface) fala senha, nome e consultório pela voz online', async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -263,6 +263,7 @@ test('TV sem voz no aparelho (Fully sem JavaScript Interface) fala senha e consu
   await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
   await page.getByText('ATIVAR PAINEL').click();
   await expect(page.getByTestId('tv-current-patient')).toHaveText('REGINA HELENA', { timeout: 20000 });
-  await expect.poll(() => ttsRequests, { timeout: 10000 }).toContain('Senha 412. Consultório 2.');
-  expect(ttsRequests.filter((t) => /REGINA|Paciente/i.test(t))).toEqual([]);
+  await expect
+    .poll(() => ttsRequests, { timeout: 10000 })
+    .toContain('Senha 412. Paciente REGINA HELENA. Consultório 2.');
 });

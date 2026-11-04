@@ -52,6 +52,9 @@ await test('política de TTS aceita somente frases de senha', () => {
     'Senha 150. Recepção 1.',
     '1',
     '0045',
+    // Senha do consultório com nome (decisão do CMIP em 04/11/2026: a TV sem voz própria fala o nome online).
+    'Senha 412. Paciente REGINA HELENA. Consultório 2.',
+    'Atenção, atendimento preferencial. Senha 7. Paciente Ana. Sala 2.',
   ]) assert.equal(isRemoteTtsPhraseAllowed(ok), true, ok);
 
   for (const bad of [
@@ -63,6 +66,10 @@ await test('política de TTS aceita somente frases de senha', () => {
     'Senha 45. Guichê 1. Paciente João Silva.',
     'Senha 45. Guichê (1).',
     'Senha 45. Guichê 1, João.',
+    // Nome sem senha, nome abreviado com ponto ou texto extra continuam fora do TTS online.
+    'Paciente REGINA HELENA. Consultório 2.',
+    'Senha 412. Paciente Maria S.. Consultório 2.',
+    'Senha 412. Paciente REGINA HELENA. Consultório 2. Olá.',
     'Olá mundo',
     'x'.repeat(500),
   ]) assert.equal(isRemoteTtsPhraseAllowed(bad), false, bad);
@@ -95,11 +102,11 @@ await test('concordância: "ao Consultório" / "à Sala"', () => {
 
 await test('voz: senha do consultório com nome fala a senha, depois o nome e o consultório', () => {
   const phrase = formatTextForSpeech({ number: '0045', patientName: 'Maria Silva', officeName: 'Consultório 1' });
-  assert.equal(phrase, 'Senha 45. Paciente Maria Silva, dirigir-se ao Consultório 1.');
-  assert.equal(isRemoteTtsPhraseAllowed(phrase), false, 'frase com nome nunca vai ao TTS online');
+  assert.equal(phrase, 'Senha 45. Paciente Maria Silva. Consultório 1.');
+  assert.equal(isRemoteTtsPhraseAllowed(phrase), true, 'senha + nome + consultório pode ir ao TTS online');
   assert.equal(
     formatTextForSpeech({ number: '0007', patientName: 'Ana', officeName: 'Sala 2', type: 'Preferencial' }),
-    'Atenção, atendimento preferencial. Senha 7. Paciente Ana, dirigir-se à Sala 2.'
+    'Atenção, atendimento preferencial. Senha 7. Paciente Ana. Sala 2.'
   );
   // Paciente-senha (SENHA-0045) continua falando só a senha.
   assert.equal(formatTextForSpeech({ patientName: 'SENHA-0045', officeName: 'Consultório 1' }), 'Senha 45. Consultório 1.');
@@ -509,21 +516,16 @@ await test('rótulos em português para status da fila e perfis', () => {
   assert.equal(roleLabel(undefined), '');
 });
 
-await test('TV sem voz no aparelho fala a senha e o consultório sem o nome (voz online)', () => {
+await test('TV sem voz no aparelho fala senha, nome e consultório (voz online)', () => {
   const call = { number: '0412', patientName: 'REGINA HELENA', officeName: 'Consultório 2' };
-  // Sem voz local (ex.: Fully sem JavaScript Interface): só senha e consultório, que podem ir ao TTS online.
-  assert.equal(speechPhraseFor(call, undefined, 'none'), 'Senha 412. Consultório 2.');
-  assert.equal(isRemoteTtsPhraseAllowed(speechPhraseFor(call, undefined, 'none')), true);
-  // Com voz no aparelho, o nome continua sendo falado (só localmente).
-  assert.equal(
-    speechPhraseFor(call, undefined, 'local'),
-    'Senha 412. Paciente REGINA HELENA, dirigir-se ao Consultório 2.'
-  );
-  assert.equal(
-    speechPhraseFor(call, undefined, 'fully'),
-    'Senha 412. Paciente REGINA HELENA, dirigir-se ao Consultório 2.'
-  );
-  // Só o nome, sem senha: não há frase sem nome possível; mantém a frase original (voz local, se houver).
+  const full = 'Senha 412. Paciente REGINA HELENA. Consultório 2.';
+  // Mesma frase com ou sem voz no aparelho; sem voz local ela vai ao TTS online.
+  for (const status of ['none', 'local', 'fully']) assert.equal(speechPhraseFor(call, undefined, status), full, status);
+  assert.equal(isRemoteTtsPhraseAllowed(full), true);
+  // Nome abreviado ("Maria S."): o ponto final do nome não vira ponto duplo.
+  const abbreviated = { number: '0412', patientName: 'Maria S.', officeName: 'Consultório 2' };
+  assert.equal(speechPhraseFor(abbreviated, undefined, 'none'), 'Senha 412. Paciente Maria S. Consultório 2.');
+  // Só o nome, sem senha: mantém a frase original (só voz local, se houver).
   const onlyName = { number: '', patientName: 'REGINA HELENA', officeName: 'Consultório 2' };
   assert.equal(
     speechPhraseFor(onlyName, undefined, 'none'),

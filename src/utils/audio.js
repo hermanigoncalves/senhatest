@@ -237,13 +237,14 @@ export function formatTextForSpeech(ticketOrNumber, desk) {
       if (ticketNumber) {
         number = ticketNumber;
       } else {
-        // Senha do consultório com nome: fala a senha primeiro, depois o nome e o consultório.
+        // Senha do consultório com nome: "Senha 412. Paciente REGINA HELENA. Consultório 2."
         const ticket = String(number || '')
           .trim()
           .replace(/^0+/, '');
         const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : ticket ? '' : 'Atenção. ';
-        const ticketPart = ticket ? `Senha ${ticket}. ` : '';
-        return `${prefix}${ticketPart}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
+        if (ticket)
+          return `${prefix}Senha ${ticket}. Paciente ${patient.replace(/\.+$/, '')}. ${targetDesk}.`;
+        return `${prefix}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
       }
     }
   } else {
