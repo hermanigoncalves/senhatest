@@ -23,6 +23,8 @@ export function OfficeTicketList({ officeId, officeName }) {
   };
   useEffect(() => {
     setItems([]);
+    // Mensagem de outro consultório (ex.: chamada duplicada) não acompanha a troca.
+    setMsg('');
     load();
     const poll = setInterval(load, 15000);
     const off = cmipApi.subscribe(`doctor-office-tickets-${officeId}`, ['office_ticket_queue'], load);

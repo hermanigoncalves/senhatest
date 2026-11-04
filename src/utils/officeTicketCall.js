@@ -5,6 +5,14 @@ import { telemetry } from './telemetry.js';
 export const ticketLabel = (item) =>
   item?.display_number ? `Senha ${item.display_number}` : item?.patient_name || 'Paciente';
 
+// Pergunta antes de trocar de consultório deixando senhas chamadas/aguardando para trás. '' quando não há nenhuma.
+export function pendingTicketsWarning(items, officeName) {
+  const pending = (items || []).filter((i) => i.status === 'waiting' || i.status === 'called');
+  if (!pending.length) return '';
+  const verb = pending.length === 1 ? 'está' : 'estão';
+  return `${pending.map(ticketLabel).join(', ')} ainda ${verb} no ${officeName} sem confirmação. Trocar de consultório mesmo assim?`;
+}
+
 // Executa uma ação sobre uma senha da caixa do consultório (recepção e médico usam o mesmo caminho).
 // action: 'call' (chama ou rechama; avisa a TV na hora), 'finish' ou 'cancel'. Devolve a mensagem para a tela.
 export async function runOfficeTicketAction(officeId, item, action) {

@@ -110,3 +110,19 @@ export async function stubMedia(page, { audio = 'suspended' } = {}) {
     void play;
   }, audio);
 }
+
+/**
+ * Derruba a conexão (route.abort) nas primeiras `times` chamadas da RPC `name`; as demais seguem para o
+ * mockSupabase. Precisa ser registrada depois dele. Devolve uma função que conta as chamadas que passaram aqui.
+ */
+export async function failRpc(page, name, times = 1) {
+  let count = 0;
+  await page.route(
+    (url) => isSupabase(url.toString()) && new URL(url.toString()).pathname.endsWith(`/rest/v1/rpc/${name}`),
+    (route) => {
+      count += 1;
+      return count <= times ? route.abort('failed') : route.fallback();
+    }
+  );
+  return () => count;
+}

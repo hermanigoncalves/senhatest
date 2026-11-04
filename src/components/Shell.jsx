@@ -3,7 +3,7 @@ import { cmipApi } from '../utils/cmipApi';
 import { LogOut } from 'lucide-react';
 import { roleLabel } from '../utils/labels';
 import { readDoctorOffice } from '../utils/doctorOffice';
-import { Button } from './ui';
+import { Button, buttonColors } from './ui';
 
 export function Shell({ profile, children, onBeforeLogout }) {
   const logout = async () => {
@@ -28,7 +28,7 @@ export function Shell({ profile, children, onBeforeLogout }) {
               <p className="text-xs text-cmip-100/60">{roleLabel(profile.role)}</p>
             </div>
           </div>
-          <Button className="bg-cmip-900 text-cmip-100 hover:bg-cmip-800" onClick={logout}>
+          <Button className={buttonColors.logout} onClick={logout}>
             <LogOut className="inline w-4" /> Sair
           </Button>
         </header>

@@ -19,6 +19,8 @@ import {
 import { normalizeTvEvent, stableEventKey } from './src/utils/tvEvents.js';
 import { freeOffices, pickDeviceSession } from './src/utils/doctorOffice.js';
 import { isTvPath, tvSlug } from './src/utils/routes.js';
+import { pendingTicketsWarning } from './src/utils/officeTicketCall.js';
+import { friendlyError, isNetworkError, NETWORK_ERROR_MSG, DUPLICATE_CALL_MSG } from './src/utils/errors.js';
 import { createLatestGuard } from './src/utils/latest.js';
 import { createTicker } from './src/utils/ticker.js';
 import { telemetry } from './src/utils/telemetry.js';
@@ -531,6 +533,34 @@ await test('TV sem voz no aparelho fala a senha e o consultório sem o nome (voz
   assert.equal(
     speechPhraseFor({ number: '0002', desk: 'Guichê 1' }, undefined, 'none'),
     'Senha 2. Guichê 1.'
+  );
+});
+
+await test('erros de rede e de chamada duplicada viram mensagens em português', () => {
+  assert.equal(NETWORK_ERROR_MSG, 'Sem internet neste aparelho. Verifique o Wi-Fi ou os dados móveis e tente de novo.');
+  assert.equal(DUPLICATE_CALL_MSG, 'Esta senha acabou de ser chamada. Aguarde alguns segundos para chamar de novo.');
+  // supabase-js devolve { message: 'TypeError: Failed to fetch' } quando o fetch cai
+  for (const m of ['TypeError: Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource.', 'Network request failed']) {
+    assert.equal(isNetworkError({ message: m }), true, m);
+    assert.equal(friendlyError({ message: m }), NETWORK_ERROR_MSG, m);
+  }
+  assert.equal(friendlyError(new TypeError('Failed to fetch')), NETWORK_ERROR_MSG);
+  assert.equal(friendlyError({ code: '23505', message: 'Chamada duplicada bloqueada' }), DUPLICATE_CALL_MSG);
+  assert.equal(friendlyError({ message: 'Somente o médico do consultório pode chamar' }), 'Somente o médico do consultório pode chamar');
+  assert.equal(friendlyError(null), 'Não foi possível concluir a operação.');
+  assert.equal(isNetworkError({ message: 'Senha não encontrada' }), false);
+});
+
+await test('aviso de senhas pendentes ao trocar de consultório', () => {
+  assert.equal(pendingTicketsWarning([], 'Consultório 2'), '');
+  assert.equal(pendingTicketsWarning([{ status: 'finished', display_number: '0001' }], 'Consultório 2'), '');
+  assert.equal(
+    pendingTicketsWarning([{ status: 'called', display_number: '0412' }], 'Consultório 2'),
+    'Senha 0412 ainda está no Consultório 2 sem confirmação. Trocar de consultório mesmo assim?'
+  );
+  assert.equal(
+    pendingTicketsWarning([{ status: 'called', display_number: '0412' }, { status: 'waiting', patient_name: 'ANA' }], 'Consultório 2'),
+    'Senha 0412, ANA ainda estão no Consultório 2 sem confirmação. Trocar de consultório mesmo assim?'
   );
 });
 

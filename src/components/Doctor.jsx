@@ -7,9 +7,10 @@ import { patientLabel } from '../utils/ticketPatient';
 import { freeOffices, pickDeviceSession, readDoctorOffice, saveDoctorOffice } from '../utils/doctorOffice';
 import { Shell } from './Shell';
 import { OfficeTicketList } from './OfficeTicketList';
+import { pendingTicketsWarning } from '../utils/officeTicketCall';
 import { statusLabel } from '../utils/labels';
 import { RotateCcw, Stethoscope, CheckCheck, UserX, Undo2, Megaphone, MoreHorizontal } from 'lucide-react';
-import { Button, Card, err, publicPatientName } from './ui';
+import { Button, Card, err, publicPatientName, buttonColors } from './ui';
 
 export function Doctor({ profile, actingDoctor = null }) {
   const [offices, setOffices] = useState([]),
@@ -17,6 +18,7 @@ export function Doctor({ profile, actingDoctor = null }) {
     [pendingOffice, setPendingOffice] = useState(''),
     [session, setSession] = useState(null),
     [msg, setMsg] = useState(''),
+    [loadError, setLoadError] = useState(''),
     [busy, setBusy] = useState(false),
     [actionBusy, setActionBusy] = useState(''),
     [presence, setPresence] = useState('offline'),
@@ -30,9 +32,13 @@ export function Doctor({ profile, actingDoctor = null }) {
   const officeOwner = doctorId || profile.id;
   const deviceOffice = useRef(readDoctorOffice(officeOwner));
   const autoStartTried = useRef(false);
+  // Erro de carregamento (ex.: queda de internet) fica separado das mensagens de ação e some sozinho:
+  // nova tentativa a cada 5 s até a conexão voltar.
+  const retryTimer = useRef(null);
 
   const load = async () => {
     const mine = loadGuard.current.next();
+    clearTimeout(retryTimer.current);
     try {
       const [o, q, sessions] = await Promise.all([
         delegated ? cmipApi.delegatedOffices(doctorId) : cmipApi.offices(),
@@ -41,6 +47,7 @@ export function Doctor({ profile, actingDoctor = null }) {
       ]);
       // Resposta antiga (Realtime/timer/ação ao mesmo tempo) não pode sobrescrever uma mais nova.
       if (!loadGuard.current.isLatest(mine)) return;
+      setLoadError('');
       const s = pickDeviceSession(sessions, deviceOffice.current);
       // Ordem natural: Consultório 2 antes do Consultório 10.
       const free = freeOffices(o, sessions, deviceOffice.current).sort((a, b) =>
@@ -53,7 +60,10 @@ export function Doctor({ profile, actingDoctor = null }) {
       if (!s) setPresence('offline');
       return { offices: free, session: s };
     } catch (e) {
-      if (loadGuard.current.isLatest(mine)) setMsg(err(e));
+      if (loadGuard.current.isLatest(mine)) {
+        setLoadError(err(e));
+        retryTimer.current = setTimeout(load, 5000);
+      }
     }
   };
 
@@ -76,7 +86,13 @@ export function Doctor({ profile, actingDoctor = null }) {
     );
   }, [doctorId]);
 
-  useEffect(() => () => cmipApi.cleanupBroadcastChannels(), []);
+  useEffect(
+    () => () => {
+      clearTimeout(retryTimer.current);
+      cmipApi.cleanupBroadcastChannels();
+    },
+    []
+  );
 
   useEffect(() => {
     if (!session) {
@@ -118,6 +134,21 @@ export function Doctor({ profile, actingDoctor = null }) {
     setMsg('');
     const previousOffice = session?.office_id;
     try {
+      // Senha chamada/aguardando no consultório que vai ser deixado: pergunta antes de trocar.
+      // Sem internet a verificação falha e a troca segue sem perguntar.
+      if (previousOffice && previousOffice !== officeId) {
+        let pending = [];
+        try {
+          pending = (await cmipApi.officeTicketOfficeQueue(previousOffice)) || [];
+        } catch (e) {
+          console.warn('Falha ao verificar senhas pendentes antes da troca de consultório', e);
+        }
+        const warning = pendingTicketsWarning(pending, session.office_name);
+        if (warning && !window.confirm(warning)) {
+          setPendingOffice(previousOffice);
+          return;
+        }
+      }
       if (delegated) await cmipApi.startDelegatedDoctorSession(doctorId, officeId);
       else await cmipApi.startSession(officeId);
       deviceOffice.current = officeId;
@@ -136,6 +167,8 @@ export function Doctor({ profile, actingDoctor = null }) {
       setChangingOffice(false);
     } catch (e) {
       console.error('Falha ao iniciar/mudar sessão médica', e);
+      // A seleção volta ao consultório que continua aberto (sem internet, nenhum recarregamento corrige).
+      setPendingOffice(previousOffice || '');
       setMsg(`Não foi possível iniciar o atendimento neste consultório. ${err(e)}`);
     } finally {
       setBusy(false);
@@ -317,28 +350,27 @@ export function Doctor({ profile, actingDoctor = null }) {
                 ))}
               </select>
               {session && (
-                <Button
-                  className="bg-cmip-900 text-cmip-100 hover:bg-cmip-800"
-                  onClick={() => setChangingOffice(false)}
-                >
+                <Button className={buttonColors.neutral} onClick={() => setChangingOffice(false)}>
                   Cancelar
                 </Button>
               )}
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button
-                className="bg-cmip-900 text-cmip-100 hover:bg-cmip-800"
-                onClick={() => setChangingOffice(true)}
-              >
+              <Button className={buttonColors.switch} onClick={() => setChangingOffice(true)}>
                 Trocar consultório
               </Button>
-              <Button disabled={busy} className="bg-cmip-900 text-cmip-100 hover:bg-cmip-800" onClick={end}>
+              <Button disabled={busy} className={buttonColors.end} onClick={end}>
                 Encerrar
               </Button>
             </div>
           )}
         </div>
+        {loadError && (
+          <p className="mt-4 text-amber-300" role="status">
+            {loadError}
+          </p>
+        )}
         {msg && (
           <p className="mt-4 text-amber-300" role="status">
             {msg}
