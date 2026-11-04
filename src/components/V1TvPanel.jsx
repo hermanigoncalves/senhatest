@@ -15,7 +15,24 @@ const VIDEOS = ['/institucional-1.mp4', '/institucional-2.mp4'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Tamanho de desenho do painel: tudo é medido nele e depois escalado para a tela real.
+const STAGE_W = 1920;
+const STAGE_H = 1080;
+const fitScale = () =>
+  typeof window === 'undefined' ? 1 : Math.min(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
+
+function useStageScale() {
+  const [scale, setScale] = useState(fitScale);
+  useEffect(() => {
+    const onResize = () => setScale(fitScale());
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return scale;
+}
+
 export default function V1TvPanel({ slug }) {
+  const stageScale = useStageScale();
   const [current, setCurrent] = useState(null);
   const [history, setHistory] = useState([]);
   const [panel, setPanel] = useState(null);
@@ -355,7 +372,7 @@ export default function V1TvPanel({ slug }) {
   const location = current?.officeName || current?.desk || 'Aguardando chamada';
 
   return (
-    <div className="h-screen w-screen bg-cmip-950 text-slate-100 font-['Montserrat',sans-serif] flex flex-col overflow-hidden cmip-plus-pattern relative">
+    <div className="h-screen w-screen bg-cmip-950 overflow-hidden cmip-plus-pattern relative">
       {/* Botão de desbloqueio de áudio/vídeo/tela cheia para navegadores */}
       {!activated && (
         <button
@@ -371,204 +388,217 @@ export default function V1TvPanel({ slug }) {
         </button>
       )}
 
-      {/* Cabeçalho Superior */}
-      <header className="h-16 md:h-20 px-4 md:px-6 flex items-center justify-between border-b border-cmip-600/30 bg-cmip-900/90 shrink-0 z-10">
-        <div className="flex items-center gap-3">
-          <div className="bg-white p-1.5 rounded-xl">
-            <img src="/logo.png" alt="CMIP Logo" className="h-9 md:h-11 object-contain" />
+      {/* Palco fixo de 1920x1080 escalado para a tela: a TV (que costuma informar 960x540 ao navegador)
+          mostra exatamente o mesmo painel do computador, só que proporcionalmente menor. */}
+      <div
+        data-testid="tv-stage"
+        className="absolute left-1/2 top-1/2 flex flex-col text-slate-100 font-['Montserrat',sans-serif] overflow-hidden"
+        style={{
+          width: STAGE_W,
+          height: STAGE_H,
+          transform: `translate(-50%, -50%) scale(${stageScale})`,
+          transformOrigin: 'center',
+        }}
+      >
+        {/* Cabeçalho Superior */}
+        <header className="h-20 px-6 flex items-center justify-between border-b border-cmip-600/30 bg-cmip-900/90 shrink-0 z-10">
+          <div className="flex items-center gap-3">
+            <div className="bg-white p-1.5 rounded-xl">
+              <img src="/logo.png" alt="CMIP Logo" className="h-11 object-contain" />
+            </div>
+            <div>
+              <h1 className="font-black text-lg uppercase">
+                <span className="text-cmip-400">CMIP</span> Painel de Atendimento
+              </h1>
+              <p className="text-xs text-cmip-100/60 uppercase">{panel?.name || slug}</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-black text-sm md:text-lg uppercase">
-              <span className="text-cmip-400">CMIP</span> Painel de Atendimento
-            </h1>
-            <p className="text-[9px] md:text-xs text-cmip-100/60 uppercase">{panel?.name || slug}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Sem voz no aparelho, o nome do paciente não é falado (só a campainha). No Fully: ligar a
+          <div className="flex items-center gap-2">
+            {/* Sem voz no aparelho, o nome do paciente não é falado (só a campainha). No Fully: ligar a
               JavaScript Interface e baixar a voz Google pt-BR no Android. */}
-          {nameVoice === 'none' && (
-            <div
-              data-testid="tv-name-voice-warning"
-              className="px-2 py-1 rounded-lg border border-amber-500/40 flex items-center gap-1 text-[9px] font-bold text-amber-300"
-              title="Fully: ative Enable JavaScript Interface (PLUS) e a voz Google pt-BR do Android"
-            >
-              <MicOff className="w-3 h-3" />
-              SEM VOZ PARA NOMES
-            </div>
-          )}
-          <button
-            onClick={fullscreen}
-            className="p-2 rounded-lg border border-cmip-600/30 bg-cmip-950"
-            title="Tela cheia"
-          >
-            <Maximize2 className="w-4 h-4" />
-          </button>
-          <div
-            className={`px-2 py-1 rounded-lg border flex items-center gap-1 text-[9px] font-bold ${connectionClass}`}
-          >
-            <Wifi className="w-3 h-3" />
-            {connectionLabel}
-          </div>
-        </div>
-      </header>
-
-      {/* Conteúdo Principal */}
-      <main className="flex-1 grid grid-cols-2 gap-3 md:gap-4 p-3 md:p-4 min-h-0 overflow-hidden z-10">
-        {/* Coluna Esquerda: Senha Atual e Histórico */}
-        <div className="flex flex-col gap-3 min-h-0">
-          {/* Card Principal da Senha Chamada */}
-          <div
-            className={`flex-1 rounded-3xl p-4 md:p-5 flex flex-col justify-between items-center text-center glass-panel min-h-0 bg-cmip-900/70 border shadow-2xl transition-all ${
-              calling ? 'animate-tv-glow border-cmip-400 bg-cmip-900/95 scale-[1.008]' : 'border-cmip-600/30'
-            }`}
-          >
-            <div className="w-full flex items-center justify-between">
-              <span className="px-4 py-1.5 rounded-full text-xs md:text-sm font-black uppercase tracking-wider bg-emerald-400 text-cmip-950">
-                {isMedical ? (
-                  <>
-                    <Stethoscope className="inline w-4 h-4 mr-1" />
-                    CONSULTA MÉDICA
-                  </>
-                ) : (
-                  'SENHA DA RECEPÇÃO'
-                )}
-              </span>
-              <span className="px-3 py-1 rounded-full border border-cmip-500/40 bg-cmip-950/80 text-xs font-bold">
-                <Clock className="inline w-3 h-3 mr-1 text-cmip-400" />
-                {time || '--:--'}
-              </span>
-            </div>
-
-            {/* Com nome do paciente, a senha sobe para o topo e o nome ocupa o centro do card */}
-            {showsName && ticketShown && (
-              <div className="shrink-0 -mt-1">
-                <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em]">
-                  SENHA
-                </p>
-                <div
-                  data-testid="tv-current-ticket"
-                  className="text-3xl md:text-4xl 2xl:text-6xl font-black tracking-tight text-white leading-tight"
-                >
-                  {ticketShown}
-                </div>
+            {nameVoice === 'none' && (
+              <div
+                data-testid="tv-name-voice-warning"
+                className="px-2 py-1 rounded-lg border border-amber-500/40 flex items-center gap-1 text-[9px] font-bold text-amber-300"
+                title="Fully: ative Enable JavaScript Interface (PLUS) e a voz Google pt-BR do Android"
+              >
+                <MicOff className="w-3 h-3" />
+                SEM VOZ PARA NOMES
               </div>
             )}
+            <button
+              onClick={fullscreen}
+              className="p-2 rounded-lg border border-cmip-600/30 bg-cmip-950"
+              title="Tela cheia"
+            >
+              <Maximize2 className="w-4 h-4" />
+            </button>
+            <div
+              className={`px-2 py-1 rounded-lg border flex items-center gap-1 text-[9px] font-bold ${connectionClass}`}
+            >
+              <Wifi className="w-3 h-3" />
+              {connectionLabel}
+            </div>
+          </div>
+        </header>
 
-            {/* min-h-0 + overflow: nome longo nunca empurra o consultório para fora do card */}
-            <div className="my-auto py-2 flex flex-col items-center justify-center max-w-4xl w-full min-h-0 overflow-hidden">
-              {!showsName && (
-                <>
-                  <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
-                    SENHA ATUAL
-                  </p>
+        {/* Conteúdo Principal */}
+        <main className="flex-1 grid grid-cols-2 gap-4 p-4 min-h-0 overflow-hidden z-10">
+          {/* Coluna Esquerda: Senha Atual e Histórico */}
+          <div className="flex flex-col gap-3 min-h-0">
+            {/* Card Principal da Senha Chamada */}
+            <div
+              className={`flex-1 rounded-3xl p-5 flex flex-col justify-between items-center text-center glass-panel min-h-0 bg-cmip-900/70 border shadow-2xl transition-all ${
+                calling
+                  ? 'animate-tv-glow border-cmip-400 bg-cmip-900/95 scale-[1.008]'
+                  : 'border-cmip-600/30'
+              }`}
+            >
+              <div className="w-full flex items-center justify-between">
+                <span className="px-4 py-1.5 rounded-full text-sm font-black uppercase tracking-wider bg-emerald-400 text-cmip-950">
+                  {isMedical ? (
+                    <>
+                      <Stethoscope className="inline w-4 h-4 mr-1" />
+                      CONSULTA MÉDICA
+                    </>
+                  ) : (
+                    'SENHA DA RECEPÇÃO'
+                  )}
+                </span>
+                <span className="px-3 py-1 rounded-full border border-cmip-500/40 bg-cmip-950/80 text-xs font-bold">
+                  <Clock className="inline w-3 h-3 mr-1 text-cmip-400" />
+                  {time || '--:--'}
+                </span>
+              </div>
+
+              {/* Com nome do paciente, a senha sobe para o topo e o nome ocupa o centro do card */}
+              {showsName && ticketShown && (
+                <div className="shrink-0 -mt-1">
+                  <p className="text-sm text-cmip-400 font-bold uppercase tracking-[0.25em]">SENHA</p>
                   <div
                     data-testid="tv-current-ticket"
-                    className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tight text-white leading-tight uppercase"
+                    className="text-6xl font-black tracking-tight text-white leading-tight"
                   >
-                    {ticketShown || '----'}
+                    {ticketShown}
                   </div>
-                </>
+                </div>
               )}
-              {showsName && (
-                <>
-                  <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
-                    PACIENTE
-                  </p>
-                  <div
-                    data-testid="tv-current-patient"
-                    className="text-3xl md:text-5xl 2xl:text-[5rem] font-black tracking-tight text-amber-300 leading-tight uppercase break-words line-clamp-3"
-                  >
-                    {patientName}
-                  </div>
-                </>
-              )}
+
+              {/* min-h-0 + overflow: nome longo nunca empurra o consultório para fora do card */}
+              <div className="my-auto py-2 flex flex-col items-center justify-center max-w-4xl w-full min-h-0 overflow-hidden">
+                {!showsName && (
+                  <>
+                    <p className="text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
+                      SENHA ATUAL
+                    </p>
+                    <div
+                      data-testid="tv-current-ticket"
+                      className="text-9xl font-black tracking-tight text-white leading-tight uppercase"
+                    >
+                      {ticketShown || '----'}
+                    </div>
+                  </>
+                )}
+                {showsName && (
+                  <>
+                    <p className="text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
+                      PACIENTE
+                    </p>
+                    <div
+                      data-testid="tv-current-patient"
+                      className="text-[5rem] font-black tracking-tight text-amber-300 leading-tight uppercase break-words line-clamp-3"
+                    >
+                      {patientName}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="w-full pt-3 border-t border-cmip-600/30 shrink-0">
+                <p className="text-xs text-cmip-400 font-bold uppercase tracking-[0.2em]">
+                  LOCAL DE ATENDIMENTO
+                </p>
+                <div className="text-5xl font-black text-amber-300 uppercase">{location}</div>
+              </div>
             </div>
 
-            <div className="w-full pt-3 border-t border-cmip-600/30 shrink-0">
-              <p className="text-[10px] md:text-xs text-cmip-400 font-bold uppercase tracking-[0.2em]">
-                LOCAL DE ATENDIMENTO
-              </p>
-              <div className="text-2xl md:text-4xl xl:text-5xl font-black text-amber-300 uppercase">
-                {location}
+            {/* Histórico Recente de Chamadas */}
+            <div className="h-40 rounded-3xl p-3 bg-cmip-900/65 border border-cmip-600/30 glass-panel overflow-hidden shadow-2xl shrink-0">
+              <div className="flex items-center justify-between mb-2 pb-1 border-b border-cmip-600/30">
+                <h2 className="text-sm font-bold uppercase flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-cmip-400" />
+                  Últimas Chamadas
+                </h2>
+                <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
+                  {panel?.name || 'CMIP'}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 h-[76px]">
+                {history.slice(1, 4).map((x) => (
+                  <div
+                    key={x.event_key}
+                    className="p-2 rounded-xl bg-cmip-950/80 border border-cmip-600/40 overflow-hidden"
+                  >
+                    <div className="text-sm font-black truncate">
+                      {x.ticketNumber
+                        ? x.ticketNumber
+                        : [x.number, x.patientName].filter(Boolean).join(' · ')}
+                    </div>
+                    <div className="text-[10px] font-bold text-amber-300 truncate">
+                      {x.officeName || x.desk}
+                    </div>
+                    <div className="text-[9px] mt-2 text-cmip-400">{x.timestamp}</div>
+                  </div>
+                ))}
+                {history.length <= 1 && (
+                  <div className="col-span-3 grid place-items-center text-xs text-cmip-100/50">
+                    Nenhuma chamada anterior neste painel
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Histórico Recente de Chamadas */}
-          <div className="h-36 md:h-40 rounded-3xl p-3 bg-cmip-900/65 border border-cmip-600/30 glass-panel overflow-hidden shadow-2xl shrink-0">
-            <div className="flex items-center justify-between mb-2 pb-1 border-b border-cmip-600/30">
-              <h2 className="text-xs md:text-sm font-bold uppercase flex items-center gap-2">
-                <Clock className="w-4 h-4 text-cmip-400" />
-                Últimas Chamadas
-              </h2>
-              <span className="text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full">
-                {panel?.name || 'CMIP'}
+          {/* Coluna Direita: Vídeos Institucionais com preload='none' para não bloquear boot */}
+          <div className="h-full rounded-3xl p-4 bg-cmip-900/70 border border-cmip-600/40 glass-panel shadow-2xl overflow-hidden flex flex-col min-h-0">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-black uppercase flex items-center gap-2">
+                <Film className="w-4 h-4 text-cmip-400" />
+                CMIP VÍDEOS INSTITUCIONAIS
               </span>
-            </div>
-            <div className="grid grid-cols-3 gap-2 h-[76px]">
-              {history.slice(1, 4).map((x) => (
-                <div
-                  key={x.event_key}
-                  className="p-2 rounded-xl bg-cmip-950/80 border border-cmip-600/40 overflow-hidden"
+              <div className="flex gap-2 items-center">
+                <span className="text-xs font-mono bg-cmip-950 px-2 py-1 rounded">
+                  {video + 1} / {VIDEOS.length}
+                </span>
+                <button
+                  onClick={() => setMuted(!muted)}
+                  className="p-1.5 rounded-xl bg-cmip-950 border border-cmip-600/30"
                 >
-                  <div className="text-xs md:text-sm font-black truncate">
-                    {x.ticketNumber ? x.ticketNumber : [x.number, x.patientName].filter(Boolean).join(' · ')}
-                  </div>
-                  <div className="text-[10px] font-bold text-amber-300 truncate">
-                    {x.officeName || x.desk}
-                  </div>
-                  <div className="text-[9px] mt-2 text-cmip-400">{x.timestamp}</div>
-                </div>
-              ))}
-              {history.length <= 1 && (
-                <div className="col-span-3 grid place-items-center text-xs text-cmip-100/50">
-                  Nenhuma chamada anterior neste painel
-                </div>
-              )}
+                  {muted ? (
+                    <VolumeX className="w-4 h-4 text-amber-400" />
+                  ) : (
+                    <Volume2 className="w-4 h-4 text-emerald-400" />
+                  )}
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-
-        {/* Coluna Direita: Vídeos Institucionais com preload='none' para não bloquear boot */}
-        <div className="h-full rounded-3xl p-4 bg-cmip-900/70 border border-cmip-600/40 glass-panel shadow-2xl overflow-hidden flex flex-col min-h-0">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs md:text-sm font-black uppercase flex items-center gap-2">
-              <Film className="w-4 h-4 text-cmip-400" />
-              CMIP VÍDEOS INSTITUCIONAIS
-            </span>
-            <div className="flex gap-2 items-center">
-              <span className="text-xs font-mono bg-cmip-950 px-2 py-1 rounded">
-                {video + 1} / {VIDEOS.length}
-              </span>
-              <button
-                onClick={() => setMuted(!muted)}
-                className="p-1.5 rounded-xl bg-cmip-950 border border-cmip-600/30"
-              >
-                {muted ? (
-                  <VolumeX className="w-4 h-4 text-amber-400" />
-                ) : (
-                  <Volume2 className="w-4 h-4 text-emerald-400" />
-                )}
-              </button>
+            <div className="relative flex-1 rounded-2xl overflow-hidden bg-black border border-cmip-600/20">
+              <video
+                ref={videoRef}
+                key={video}
+                src={videoReady ? VIDEOS[video] : undefined}
+                autoPlay={activated}
+                muted={muted}
+                playsInline
+                preload="none"
+                onEnded={() => setVideo((video + 1) % VIDEOS.length)}
+                className="w-full h-full object-contain bg-black"
+              />
             </div>
+            <p className="text-[10px] text-cmip-100/50 mt-2 text-center capitalize">{date}</p>
           </div>
-          <div className="relative flex-1 rounded-2xl overflow-hidden bg-black border border-cmip-600/20">
-            <video
-              ref={videoRef}
-              key={video}
-              src={videoReady ? VIDEOS[video] : undefined}
-              autoPlay={activated}
-              muted={muted}
-              playsInline
-              preload="none"
-              onEnded={() => setVideo((video + 1) % VIDEOS.length)}
-              className="w-full h-full object-contain bg-black"
-            />
-          </div>
-          <p className="text-[10px] text-cmip-100/50 mt-2 text-center capitalize">{date}</p>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

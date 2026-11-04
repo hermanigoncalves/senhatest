@@ -32,7 +32,11 @@ async function setup(page, publicState, { audio } = {}) {
   await stubMedia(page, { audio });
   await page.route('**/api/tts**', (route) => {
     ttsRequests.push(decodeURIComponent(new URL(route.request().url()).searchParams.get('text') || ''));
-    return route.fulfill({ status: 200, contentType: 'audio/mpeg', body: Buffer.from([0xff, 0xfb, 0x90, 0x00]) });
+    return route.fulfill({
+      status: 200,
+      contentType: 'audio/mpeg',
+      body: Buffer.from([0xff, 0xfb, 0x90, 0x00]),
+    });
   });
   await mockSupabase(page, {
     rpc: {
@@ -78,7 +82,9 @@ test('vídeo institucional volta a tocar depois de uma chamada de senha', async 
 
   // Chega a nova chamada pelo polling de contingência (10s)
   await expect(page.getByText('0002').first()).toBeVisible({ timeout: 20000 });
-  await expect.poll(() => page.evaluate(() => window.__media.videoPause), { timeout: 10000 }).toBeGreaterThan(0);
+  await expect
+    .poll(() => page.evaluate(() => window.__media.videoPause), { timeout: 10000 })
+    .toBeGreaterThan(0);
   // Regressão: o vídeo era pausado na chamada e nunca retomava (callback com valor antigo de `activated`)
   await expect
     .poll(() => page.evaluate(() => window.__media.videoPlay), { timeout: 15000 })
@@ -142,7 +148,9 @@ test('Fully Kiosk: chamada de senha também usa a voz do aparelho', async ({ pag
     .toEqual([['Senha 2. Guichê 1.', 'pt-BR']]);
   expect(ttsRequests.filter((t) => t !== '1')).toEqual([]);
   // A fila libera a TV depois do "done": o vídeo institucional volta.
-  await expect.poll(() => page.evaluate(() => window.__media.videoPlay), { timeout: 10000 }).toBeGreaterThan(1);
+  await expect
+    .poll(() => page.evaluate(() => window.__media.videoPlay), { timeout: 10000 })
+    .toBeGreaterThan(1);
 });
 
 test('TV sem voz no aparelho mostra o aviso "sem voz para nomes"; com Fully, não', async ({ page }) => {
@@ -191,3 +199,53 @@ test('/tvqualquercoisa não abre a TV (cai no login)', async ({ page }) => {
   await page.goto('/tvqualquercoisa', { waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'CMIP CHAMADOR' })).toBeVisible();
 });
+
+// A TV da clínica informa ao navegador uma tela pequena (ex.: 960x540): o painel precisa ficar igual ao do
+// computador (1920x1080), só que proporcionalmente menor — nada sobreposto nem cortado.
+const officeCall = (min, key) => ({
+  event_key: key,
+  kind: 'ticket',
+  display_number: '0412',
+  patient_name: 'REGINA HELENA',
+  destination: 'Consultório 2',
+  at: new Date(Date.now() - min * 60000).toISOString(),
+});
+for (const [width, height] of [
+  [960, 540],
+  [1280, 720],
+  [1366, 768],
+  [1920, 1080],
+]) {
+  test(`TV ${width}x${height}: senha, nome e últimas chamadas sem sobreposição nem corte`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    const history = [officeCall(0, 'o3'), officeCall(1, 'o2'), officeCall(2, 'o1')];
+    await setup(page, () => ({ panel: PANEL, current: history[0], history }));
+    await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
+    await page.getByText('ATIVAR PAINEL').click();
+    const patient = page.getByTestId('tv-current-patient');
+    await expect(patient).toHaveText('REGINA HELENA');
+    const badge = await page.getByText('SENHA DA RECEPÇÃO').boundingBox();
+    const label = await page.getByText('SENHA', { exact: true }).boundingBox();
+    const overlaps =
+      badge.x < label.x + label.width &&
+      label.x < badge.x + badge.width &&
+      badge.y < label.y + label.height &&
+      label.y < badge.y + badge.height;
+    expect(overlaps).toBe(false);
+    // Nome inteiro visível: a caixa do nome cabe no bloco (com overflow escondido) que a contém.
+    const nameVisible = await patient.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const box = el.parentElement.getBoundingClientRect();
+      return r.top >= box.top - 2 && r.bottom <= box.bottom + 2 && el.scrollWidth <= el.clientWidth;
+    });
+    expect(nameVisible).toBe(true);
+    // Últimas chamadas sem reticências: "0412 · REGINA HELENA" cabe no card.
+    const card = page.getByText('0412 · REGINA HELENA').first();
+    expect(await card.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // Tudo dentro da tela: nada vaza para fora da TV.
+    const video = await page.getByText('CMIP VÍDEOS INSTITUCIONAIS').boundingBox();
+    expect(video.x + video.width).toBeLessThanOrEqual(width);
+  });
+}
