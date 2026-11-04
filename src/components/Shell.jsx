@@ -2,6 +2,7 @@ import React from 'react';
 import { cmipApi } from '../utils/cmipApi';
 import { LogOut } from 'lucide-react';
 import { roleLabel } from '../utils/labels';
+import { readDoctorOffice } from '../utils/doctorOffice';
 import { Button } from './ui';
 
 export function Shell({ profile, children, onBeforeLogout }) {
@@ -12,7 +13,7 @@ export function Shell({ profile, children, onBeforeLogout }) {
     } catch (e) {
       console.warn('Falha ao encerrar contexto delegado antes do logout', e);
     } finally {
-      if (profile.role === 'doctor') await cmipApi.signOutDoctor();
+      if (profile.role === 'doctor') await cmipApi.signOutDoctor(readDoctorOffice(profile.id));
       else await cmipApi.signOut();
     }
   };

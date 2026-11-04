@@ -70,9 +70,10 @@ export const cmipApi = {
     throw new Error('Informe um usuário válido.');
   },
   signOut: () => supabase.auth.signOut(),
-  signOutDoctor: async () => {
+  // Fecha só o consultório deste aparelho: o mesmo login pode estar atendendo em outros computadores.
+  signOutDoctor: async (officeId) => {
     try {
-      await rpc('end_doctor_session');
+      if (officeId) await rpc('end_doctor_session', { p_office_id: officeId });
     } catch (e) {
       // O logout não pode ficar preso se o encerramento da sessão falhar; o heartbeat expira em 45s.
       console.warn('Falha ao encerrar sessão médica antes do logout', e);
@@ -146,25 +147,23 @@ export const cmipApi = {
       supabase.from('reception_queue_view').select('*').order('created_at', { ascending: false }).limit(100)
     ),
   offices: () => rpc('available_offices'),
-  doctorHeartbeat: () => rpc('doctor_heartbeat'),
-  myDoctorSession: async () => {
-    const rows = await rpc('get_my_doctor_session');
-    return rows?.[0] || null;
-  },
+  // Heartbeat e encerramento valem só para o consultório deste aparelho (o login pode estar em vários).
+  doctorHeartbeat: (officeId) => rpc('doctor_heartbeat', { p_office_id: officeId }),
+  myDoctorSessions: async () => (await rpc('get_my_doctor_session')) || [],
   startSession: (officeId) => rpc('start_doctor_session', { p_office_id: officeId }),
-  endSession: () => rpc('end_doctor_session'),
+  endSession: (officeId) => rpc('end_doctor_session', { p_office_id: officeId }),
   doctorQueue: () => rows(supabase.from('doctor_queue_view').select('*').order('created_at')),
   queueAction: (queueId, action) => rpc('doctor_queue_action', { p_queue_id: queueId, p_action: action }),
   delegatedDoctors: () => rpc('admin_list_delegable_doctors'),
   delegatedOffices: (doctorId) => rpc('admin_available_offices', { p_doctor_id: doctorId }),
-  delegatedDoctorHeartbeat: (doctorId) => rpc('admin_doctor_heartbeat', { p_doctor_id: doctorId }),
-  delegatedDoctorSession: async (doctorId) => {
-    const rows = await rpc('admin_get_doctor_session', { p_doctor_id: doctorId });
-    return rows?.[0] || null;
-  },
+  delegatedDoctorHeartbeat: (doctorId, officeId) =>
+    rpc('admin_doctor_heartbeat', { p_doctor_id: doctorId, p_office_id: officeId }),
+  delegatedDoctorSessions: async (doctorId) =>
+    (await rpc('admin_get_doctor_session', { p_doctor_id: doctorId })) || [],
   startDelegatedDoctorSession: (doctorId, officeId) =>
     rpc('admin_start_doctor_session', { p_doctor_id: doctorId, p_office_id: officeId }),
-  endDelegatedDoctorSession: (doctorId) => rpc('admin_end_doctor_session', { p_doctor_id: doctorId }),
+  endDelegatedDoctorSession: (doctorId, officeId) =>
+    rpc('admin_end_doctor_session', { p_doctor_id: doctorId, p_office_id: officeId }),
   delegatedDoctorQueue: (doctorId) => rpc('admin_get_doctor_queue', { p_doctor_id: doctorId }),
   delegatedDoctorQueueAction: (doctorId, queueId, action) =>
     rpc('admin_doctor_queue_action', { p_doctor_id: doctorId, p_queue_id: queueId, p_action: action }),

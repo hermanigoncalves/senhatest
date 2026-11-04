@@ -233,6 +233,8 @@ test('recepção: encaminha senha ao consultório sem médico logado e só pode 
 
 test('médico: vê as senhas encaminhadas ao consultório e chama sem a recepção', async ({ page }) => {
   await seedSession(page);
+  // Este aparelho abriu o Consultório 4 (o mesmo login pode ter outros consultórios em outros computadores).
+  await page.addInitScript(() => localStorage.setItem('cmip_doctor_office_user-1', 'o4'));
   let called;
   await mockSupabase(page, {
     auth: baseAuth,

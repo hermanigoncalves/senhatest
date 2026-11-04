@@ -16,6 +16,7 @@ import {
   nameVoiceStatus,
 } from './src/utils/audio.js';
 import { normalizeTvEvent, stableEventKey } from './src/utils/tvEvents.js';
+import { freeOffices, pickDeviceSession } from './src/utils/doctorOffice.js';
 import { isTvPath, tvSlug } from './src/utils/routes.js';
 import { createLatestGuard } from './src/utils/latest.js';
 import { createTicker } from './src/utils/ticker.js';
@@ -411,6 +412,46 @@ await test('logout do médico continua mesmo se encerrar a sessão falhar', asyn
     assert.equal(signedOut, 1);
   } finally {
     console.warn = warn;
+    supabase.rpc = origRpc;
+    supabase.auth.signOut = origSignOut;
+  }
+});
+
+await test('login de médico compartilhado: cada aparelho só usa o seu consultório', () => {
+  const now = Date.parse('2026-11-04T12:00:00Z');
+  const ago = (s) => new Date(now - s * 1000).toISOString();
+  const sessions = [
+    { session_id: 's1', office_id: 'c1', last_seen_at: ago(5) }, // outro computador, ativo
+    { session_id: 's2', office_id: 'c2', last_seen_at: ago(5) }, // este computador
+    { session_id: 's3', office_id: 'c3', last_seen_at: ago(120) }, // computador desligado (sem heartbeat)
+  ];
+  const offices = [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }, { id: 'c4' }];
+  assert.equal(pickDeviceSession(sessions, 'c2').session_id, 's2');
+  assert.equal(pickDeviceSession(sessions, ''), null, 'aparelho novo não assume o consultório de outro');
+  assert.equal(pickDeviceSession(sessions, 'c9'), null);
+  assert.deepEqual(
+    freeOffices(offices, sessions, 'c2', now).map((o) => o.id),
+    ['c2', 'c3', 'c4'],
+    'consultório em uso em outro computador some da lista; o próprio e o abandonado continuam'
+  );
+  assert.deepEqual(freeOffices(offices, [], '', now).map((o) => o.id), ['c1', 'c2', 'c3', 'c4']);
+});
+
+await test('logout do médico sem consultório no aparelho não encerra nenhum consultório', async () => {
+  const origRpc = supabase.rpc;
+  const origSignOut = supabase.auth.signOut;
+  const calls = [];
+  supabase.rpc = async (name, args) => {
+    calls.push([name, args]);
+    return { data: null, error: null };
+  };
+  supabase.auth.signOut = async () => ({ error: null });
+  try {
+    await cmipApi.signOutDoctor('');
+    assert.deepEqual(calls, []);
+    await cmipApi.signOutDoctor('c2');
+    assert.deepEqual(calls, [['end_doctor_session', { p_office_id: 'c2' }]]);
+  } finally {
     supabase.rpc = origRpc;
     supabase.auth.signOut = origSignOut;
   }

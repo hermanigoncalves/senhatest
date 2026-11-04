@@ -4,6 +4,7 @@ import { telemetry } from '../utils/telemetry';
 import { createTicker } from '../utils/ticker';
 import { createLatestGuard } from '../utils/latest';
 import { patientLabel } from '../utils/ticketPatient';
+import { freeOffices, pickDeviceSession, readDoctorOffice, saveDoctorOffice } from '../utils/doctorOffice';
 import { Shell } from './Shell';
 import { OfficeTicketList } from './OfficeTicketList';
 import { statusLabel } from '../utils/labels';
@@ -24,26 +25,30 @@ export function Doctor({ profile, actingDoctor = null }) {
   const loadGuard = useRef(createLatestGuard());
   const delegated = Boolean(actingDoctor?.doctor_id),
     doctorId = actingDoctor?.doctor_id;
-  // O consultório usado por último fica salvo no aparelho e é reativado sozinho ao abrir a tela.
-  const officeKey = `cmip_doctor_office_${doctorId || profile.id}`;
+  // O consultório deste aparelho fica salvo e é reativado sozinho ao abrir a tela. O mesmo login pode ter
+  // consultórios abertos em outros computadores: esta tela só enxerga e mexe no seu.
+  const officeOwner = doctorId || profile.id;
+  const deviceOffice = useRef(readDoctorOffice(officeOwner));
   const autoStartTried = useRef(false);
 
   const load = async () => {
     const mine = loadGuard.current.next();
     try {
-      const [o, q, s] = await Promise.all([
+      const [o, q, sessions] = await Promise.all([
         delegated ? cmipApi.delegatedOffices(doctorId) : cmipApi.offices(),
         delegated ? cmipApi.delegatedDoctorQueue(doctorId) : cmipApi.doctorQueue(),
-        delegated ? cmipApi.delegatedDoctorSession(doctorId) : cmipApi.myDoctorSession(),
+        delegated ? cmipApi.delegatedDoctorSessions(doctorId) : cmipApi.myDoctorSessions(),
       ]);
       // Resposta antiga (Realtime/timer/ação ao mesmo tempo) não pode sobrescrever uma mais nova.
       if (!loadGuard.current.isLatest(mine)) return;
-      setOffices(o || []);
+      const s = pickDeviceSession(sessions, deviceOffice.current);
+      const free = freeOffices(o, sessions, deviceOffice.current);
+      setOffices(free);
       setQueue(q || []);
-      setSession(s || null);
+      setSession(s);
       if (s?.office_id) setPendingOffice(s.office_id);
       if (!s) setPresence('offline');
-      return { offices: o || [], session: s || null };
+      return { offices: free, session: s };
     } catch (e) {
       if (loadGuard.current.isLatest(mine)) setMsg(err(e));
     }
@@ -53,7 +58,7 @@ export function Doctor({ profile, actingDoctor = null }) {
     load().then((state) => {
       if (!state || state.session || autoStartTried.current) return;
       autoStartTried.current = true;
-      const saved = readSavedOffice(officeKey);
+      const saved = deviceOffice.current;
       const officeId = state.offices.some((o) => o.id === saved)
         ? saved
         : state.offices.length === 1
@@ -79,8 +84,8 @@ export function Doctor({ profile, actingDoctor = null }) {
     let stopped = false;
     const beat = async () => {
       try {
-        if (delegated) await cmipApi.delegatedDoctorHeartbeat(doctorId);
-        else await cmipApi.doctorHeartbeat();
+        if (delegated) await cmipApi.delegatedDoctorHeartbeat(doctorId, session.office_id);
+        else await cmipApi.doctorHeartbeat(session.office_id);
         if (!stopped) {
           heartbeatFailures.current = 0;
           setPresence('online');
@@ -108,10 +113,21 @@ export function Doctor({ profile, actingDoctor = null }) {
     setPendingOffice(officeId);
     setBusy(true);
     setMsg('');
+    const previousOffice = session?.office_id;
     try {
       if (delegated) await cmipApi.startDelegatedDoctorSession(doctorId, officeId);
       else await cmipApi.startSession(officeId);
-      saveOffice(officeKey, officeId);
+      deviceOffice.current = officeId;
+      saveDoctorOffice(officeOwner, officeId);
+      // Troca de consultório: o banco não fecha mais o anterior sozinho (o login pode estar em vários).
+      if (previousOffice && previousOffice !== officeId) {
+        try {
+          if (delegated) await cmipApi.endDelegatedDoctorSession(doctorId, previousOffice);
+          else await cmipApi.endSession(previousOffice);
+        } catch (e) {
+          console.warn('Falha ao fechar o consultório anterior; o heartbeat expira em 45s', e);
+        }
+      }
       setPresence('reconnecting');
       await load();
       setChangingOffice(false);
@@ -128,8 +144,9 @@ export function Doctor({ profile, actingDoctor = null }) {
     setBusy(true);
     setMsg('');
     try {
-      if (delegated) await cmipApi.endDelegatedDoctorSession(doctorId);
-      else await cmipApi.endSession();
+      const officeId = session?.office_id || deviceOffice.current;
+      if (delegated) await cmipApi.endDelegatedDoctorSession(doctorId, officeId);
+      else await cmipApi.endSession(officeId);
       setPresence('offline');
       await load();
       setMsg('Atendimento encerrado.');
@@ -255,7 +272,14 @@ export function Doctor({ profile, actingDoctor = null }) {
   return (
     <Shell
       profile={profile}
-      onBeforeLogout={delegated ? () => cmipApi.endDelegatedDoctorSession(doctorId) : null}
+      onBeforeLogout={
+        delegated
+          ? async () => {
+              const officeId = session?.office_id || deviceOffice.current;
+              if (officeId) await cmipApi.endDelegatedDoctorSession(doctorId, officeId);
+            }
+          : null
+      }
     >
       <Card>
         {delegated && (
@@ -420,19 +444,4 @@ function QueueRow({ item, isNext, busy, canCall, onAct }) {
       </div>
     </li>
   );
-}
-
-function readSavedOffice(key) {
-  try {
-    return localStorage.getItem(key) || '';
-  } catch {
-    return '';
-  }
-}
-function saveOffice(key, officeId) {
-  try {
-    localStorage.setItem(key, officeId);
-  } catch {
-    /* sem armazenamento: o médico escolhe o consultório de novo na próxima vez */
-  }
 }

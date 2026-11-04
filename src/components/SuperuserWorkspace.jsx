@@ -5,6 +5,13 @@ import { Doctor } from './Doctor';
 import { Reception } from './Reception';
 import { Admin } from './Admin';
 import { Card, err } from './ui';
+import { readDoctorOffice } from '../utils/doctorOffice';
+
+// Fecha só o consultório que este aparelho abriu para o médico (ele pode estar atendendo em outros).
+const endDelegated = async (doctorId) => {
+  const officeId = readDoctorOffice(doctorId);
+  if (officeId) await cmipApi.endDelegatedDoctorSession(doctorId, officeId);
+};
 
 function DelegatedDoctorModule({ profile, doctorId, onDoctorChange }) {
   const [doctors, setDoctors] = useState([]),
@@ -59,7 +66,7 @@ export function SuperuserWorkspace({ profile }) {
   const changeDoctor = async (nextId) => {
     if (delegatedDoctorId && delegatedDoctorId !== nextId) {
       try {
-        await cmipApi.endDelegatedDoctorSession(delegatedDoctorId);
+        await endDelegated(delegatedDoctorId);
       } catch (e) {
         console.warn('Falha ao encerrar sessão delegada anterior', e);
       }
@@ -70,7 +77,7 @@ export function SuperuserWorkspace({ profile }) {
   const changeModule = async (nextId) => {
     if (active === 'doctor' && nextId !== 'doctor' && delegatedDoctorId) {
       try {
-        await cmipApi.endDelegatedDoctorSession(delegatedDoctorId);
+        await endDelegated(delegatedDoctorId);
       } catch (e) {
         console.warn('Falha ao encerrar sessão delegada ao trocar de módulo', e);
       }
