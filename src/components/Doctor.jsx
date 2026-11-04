@@ -42,7 +42,10 @@ export function Doctor({ profile, actingDoctor = null }) {
       // Resposta antiga (Realtime/timer/ação ao mesmo tempo) não pode sobrescrever uma mais nova.
       if (!loadGuard.current.isLatest(mine)) return;
       const s = pickDeviceSession(sessions, deviceOffice.current);
-      const free = freeOffices(o, sessions, deviceOffice.current);
+      // Ordem natural: Consultório 2 antes do Consultório 10.
+      const free = freeOffices(o, sessions, deviceOffice.current).sort((a, b) =>
+        String(a.name).localeCompare(String(b.name), 'pt-BR', { numeric: true })
+      );
       setOffices(free);
       setQueue(q || []);
       setSession(s);
