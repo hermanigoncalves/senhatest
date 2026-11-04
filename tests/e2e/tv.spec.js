@@ -145,6 +145,21 @@ test('Fully Kiosk: chamada de senha também usa a voz do aparelho', async ({ pag
   await expect.poll(() => page.evaluate(() => window.__media.videoPlay), { timeout: 10000 }).toBeGreaterThan(1);
 });
 
+test('TV sem voz no aparelho mostra o aviso "sem voz para nomes"; com Fully, não', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (window.speechSynthesis) window.speechSynthesis.getVoices = () => [];
+  });
+  await setup(page, () => ({ panel: PANEL, current: null, history: [] }));
+  await page.goto('/tv/recepcao', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('tv-name-voice-warning')).toBeVisible({ timeout: 5000 });
+
+  await stubFullyKiosk(page);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByText('Últimas Chamadas')).toBeVisible();
+  await page.waitForTimeout(2500);
+  await expect(page.getByTestId('tv-name-voice-warning')).toHaveCount(0);
+});
+
 test('falha na primeira consulta: TV fica OFFLINE mas os vídeos carregam', async ({ page }) => {
   await stubMedia(page);
   await mockSupabase(page, {

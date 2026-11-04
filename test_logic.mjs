@@ -13,6 +13,7 @@ import {
   speakTicket,
   prepareTtsAudio,
   _resetFullyTtsForTest,
+  nameVoiceStatus,
 } from './src/utils/audio.js';
 import { normalizeTvEvent, stableEventKey } from './src/utils/tvEvents.js';
 import { isTvPath, tvSlug } from './src/utils/routes.js';
@@ -88,6 +89,18 @@ await test('concordância: "ao Consultório" / "à Sala"', () => {
   assert.equal(formatTextForSpeech({ patientName: 'Ana P.', officeName: 'Sala 3' }), 'Atenção. Paciente Ana P., dirigir-se à Sala 3.');
 });
 
+await test('voz: senha do consultório com nome fala a senha, depois o nome e o consultório', () => {
+  const phrase = formatTextForSpeech({ number: '0045', patientName: 'Maria Silva', officeName: 'Consultório 1' });
+  assert.equal(phrase, 'Senha 45. Paciente Maria Silva, dirigir-se ao Consultório 1.');
+  assert.equal(isRemoteTtsPhraseAllowed(phrase), false, 'frase com nome nunca vai ao TTS online');
+  assert.equal(
+    formatTextForSpeech({ number: '0007', patientName: 'Ana', officeName: 'Sala 2', type: 'Preferencial' }),
+    'Atenção, atendimento preferencial. Senha 7. Paciente Ana, dirigir-se à Sala 2.'
+  );
+  // Paciente-senha (SENHA-0045) continua falando só a senha.
+  assert.equal(formatTextForSpeech({ patientName: 'SENHA-0045', officeName: 'Consultório 1' }), 'Senha 45. Consultório 1.');
+});
+
 await test('voz: prefere voz local; voz de rede só serve como alternativa', () => {
   const remote = { name: 'Google português do Brasil', lang: 'pt-BR', localService: false };
   const local = { name: 'Microsoft Maria', lang: 'pt-BR', localService: true };
@@ -106,6 +119,18 @@ await test('Fully Kiosk: detecção só com a JavaScript Interface ativa', () =>
   assert.equal(getFullyTts({ fully: { id: 'fully', tagName: 'DIV' } }), null, 'elemento com id="fully" não conta');
   const fully = { textToSpeech() {} };
   assert.equal(getFullyTts({ fully }), fully);
+});
+
+await test('aviso da TV: diz se o aparelho consegue falar o nome do paciente', () => {
+  const synth = (voices) => ({ getVoices: () => voices });
+  const remote = { name: 'Google português do Brasil', lang: 'pt-BR', localService: false };
+  const local = { name: 'Microsoft Maria', lang: 'pt-BR', localService: true };
+  assert.equal(nameVoiceStatus({ fully: { textToSpeech() {} } }), 'fully');
+  assert.equal(nameVoiceStatus({ speechSynthesis: synth([remote, local]) }), 'local');
+  assert.equal(nameVoiceStatus({ speechSynthesis: synth([remote]) }), 'none', 'voz de rede não fala nomes');
+  assert.equal(nameVoiceStatus({ fully: {}, speechSynthesis: synth([]) }), 'none', 'Fully sem JavaScript Interface');
+  assert.equal(nameVoiceStatus({}), 'none');
+  assert.equal(nameVoiceStatus(undefined), 'none');
 });
 
 // Fully falso que emite os eventos registrados via fully.bind, como o app real faz.

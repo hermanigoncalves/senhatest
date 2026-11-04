@@ -1,7 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, Film, Maximize2, Monitor, Stethoscope, Volume2, VolumeX, Wifi } from 'lucide-react';
+import { Clock, Film, Maximize2, MicOff, Monitor, Stethoscope, Volume2, VolumeX, Wifi } from 'lucide-react';
 import { cmipApi } from '../utils/cmipApi';
-import { announceTicket, isAudioContextRunning, warmupAudio, checkTtsAvailability } from '../utils/audio';
+import {
+  announceTicket,
+  isAudioContextRunning,
+  warmupAudio,
+  checkTtsAvailability,
+  nameVoiceStatus,
+} from '../utils/audio';
 import { telemetry, latencyLog } from '../utils/telemetry';
 import { normalizeTvEvent as normalize } from '../utils/tvEvents';
 
@@ -23,6 +29,8 @@ export default function V1TvPanel({ slug }) {
   const [date, setDate] = useState('');
   const [missing, setMissing] = useState(false);
   const [videoReady, setVideoReady] = useState(false);
+  // null até a 1ª verificação: as vozes do navegador carregam depois da página e o aviso não pode piscar.
+  const [nameVoice, setNameVoice] = useState(null);
 
   const videoRef = useRef(null);
   const first = useRef(true);
@@ -174,8 +182,7 @@ export default function V1TvPanel({ slug }) {
         all
           .filter(
             (e) =>
-              !seen.current.has(e.event_key) &&
-              (e.atMs === null ? e === next : e.atMs > lastServerAt.current)
+              !seen.current.has(e.event_key) && (e.atMs === null ? e === next : e.atMs > lastServerAt.current)
           )
           .sort((a, b) => (a.atMs ?? Infinity) - (b.atMs ?? Infinity))
           .forEach((e) => enqueue(e, origin));
@@ -211,7 +218,12 @@ export default function V1TvPanel({ slug }) {
     checkTtsAvailability().catch(() => {});
     const ttsProbeInterval = setInterval(() => {
       checkTtsAvailability().catch(() => {});
+      setNameVoice(nameVoiceStatus());
     }, 60000);
+    const voiceCheckTimer = setTimeout(() => setNameVoice(nameVoiceStatus()), 2000);
+    const synth = window.speechSynthesis;
+    const onVoicesChanged = () => setNameVoice(nameVoiceStatus());
+    synth?.addEventListener?.('voiceschanged', onVoicesChanged);
 
     // 3. Auto-ativação: o navegador só libera áudio automaticamente se a política de autoplay permitir
     //    (ex.: Chrome em modo quiosque com --autoplay-policy=no-user-gesture-required). Caso contrário,
@@ -260,6 +272,8 @@ export default function V1TvPanel({ slug }) {
 
     return () => {
       clearTimeout(autoActivateTimer);
+      clearTimeout(voiceCheckTimer);
+      synth?.removeEventListener?.('voiceschanged', onVoicesChanged);
       window.removeEventListener('keydown', onFirstGesture);
       window.removeEventListener('pointerdown', onFirstGesture);
       clearInterval(t);
@@ -334,13 +348,10 @@ export default function V1TvPanel({ slug }) {
 
   const isMedical = current?.kind === 'medical';
   const isTicketCall = Boolean(current?.ticketNumber);
-  const displayName = current
-    ? isTicketCall
-      ? current.ticketNumber
-      : isMedical || current.patientName
-        ? current.patientName || current.number
-        : current.number
-    : '----';
+  // Senha do consultório com nome do paciente: a TV mostra a senha e, embaixo, o nome.
+  const patientName = isTicketCall ? '' : current?.patientName || '';
+  const ticketShown = isTicketCall ? current.ticketNumber : current?.number || '';
+  const showsName = Boolean(patientName);
   const location = current?.officeName || current?.desk || 'Aguardando chamada';
 
   return (
@@ -374,6 +385,18 @@ export default function V1TvPanel({ slug }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Sem voz no aparelho, o nome do paciente não é falado (só a campainha). No Fully: ligar a
+              JavaScript Interface e baixar a voz Google pt-BR no Android. */}
+          {nameVoice === 'none' && (
+            <div
+              data-testid="tv-name-voice-warning"
+              className="px-2 py-1 rounded-lg border border-amber-500/40 flex items-center gap-1 text-[9px] font-bold text-amber-300"
+              title="Fully: ative Enable JavaScript Interface (PLUS) e a voz Google pt-BR do Android"
+            >
+              <MicOff className="w-3 h-3" />
+              SEM VOZ PARA NOMES
+            </div>
+          )}
           <button
             onClick={fullscreen}
             className="p-2 rounded-lg border border-cmip-600/30 bg-cmip-950"
@@ -417,22 +440,52 @@ export default function V1TvPanel({ slug }) {
               </span>
             </div>
 
-            <div className="my-auto py-2 flex flex-col items-center justify-center max-w-4xl">
-              <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
-                {isMedical && !isTicketCall ? 'PACIENTE' : 'SENHA ATUAL'}
-              </p>
-              <div
-                className={`${
-                  isMedical && !isTicketCall
-                    ? 'text-4xl sm:text-5xl md:text-6xl lg:text-7xl'
-                    : 'text-6xl sm:text-7xl md:text-8xl lg:text-9xl'
-                } font-black tracking-tight text-white leading-tight uppercase`}
-              >
-                {displayName}
+            {/* Com nome do paciente, a senha sobe para o topo e o nome ocupa o centro do card */}
+            {showsName && ticketShown && (
+              <div className="shrink-0 -mt-1">
+                <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em]">
+                  SENHA
+                </p>
+                <div
+                  data-testid="tv-current-ticket"
+                  className="text-3xl md:text-4xl 2xl:text-6xl font-black tracking-tight text-white leading-tight"
+                >
+                  {ticketShown}
+                </div>
               </div>
+            )}
+
+            {/* min-h-0 + overflow: nome longo nunca empurra o consultório para fora do card */}
+            <div className="my-auto py-2 flex flex-col items-center justify-center max-w-4xl w-full min-h-0 overflow-hidden">
+              {!showsName && (
+                <>
+                  <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
+                    SENHA ATUAL
+                  </p>
+                  <div
+                    data-testid="tv-current-ticket"
+                    className="text-6xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tight text-white leading-tight uppercase"
+                  >
+                    {ticketShown || '----'}
+                  </div>
+                </>
+              )}
+              {showsName && (
+                <>
+                  <p className="text-xs md:text-sm text-cmip-400 font-bold uppercase tracking-[0.25em] mb-1">
+                    PACIENTE
+                  </p>
+                  <div
+                    data-testid="tv-current-patient"
+                    className="text-3xl md:text-5xl 2xl:text-[5rem] font-black tracking-tight text-amber-300 leading-tight uppercase break-words line-clamp-3"
+                  >
+                    {patientName}
+                  </div>
+                </>
+              )}
             </div>
 
-            <div className="w-full pt-3 border-t border-cmip-600/30">
+            <div className="w-full pt-3 border-t border-cmip-600/30 shrink-0">
               <p className="text-[10px] md:text-xs text-cmip-400 font-bold uppercase tracking-[0.2em]">
                 LOCAL DE ATENDIMENTO
               </p>
@@ -460,11 +513,7 @@ export default function V1TvPanel({ slug }) {
                   className="p-2 rounded-xl bg-cmip-950/80 border border-cmip-600/40 overflow-hidden"
                 >
                   <div className="text-xs md:text-sm font-black truncate">
-                    {x.ticketNumber
-                      ? x.ticketNumber
-                      : x.kind === 'medical' || x.patientName
-                        ? x.patientName || x.number
-                        : x.number}
+                    {x.ticketNumber ? x.ticketNumber : [x.number, x.patientName].filter(Boolean).join(' · ')}
                   </div>
                   <div className="text-[10px] font-bold text-amber-300 truncate">
                     {x.officeName || x.desk}

@@ -237,8 +237,13 @@ export function formatTextForSpeech(ticketOrNumber, desk) {
       if (ticketNumber) {
         number = ticketNumber;
       } else {
-        const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : 'Atenção. ';
-        return `${prefix}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
+        // Senha do consultório com nome: fala a senha primeiro, depois o nome e o consultório.
+        const ticket = String(number || '')
+          .trim()
+          .replace(/^0+/, '');
+        const prefix = isPriority ? 'Atenção, atendimento preferencial. ' : ticket ? '' : 'Atenção. ';
+        const ticketPart = ticket ? `Senha ${ticket}. ` : '';
+        return `${prefix}${ticketPart}Paciente ${patient}, dirigir-se ${destinationPhrase(targetDesk)}.`;
       }
     }
   } else {
@@ -430,6 +435,18 @@ export function speakTicketNative(phrase, { localOnly = false } = {}) {
 export function getFullyTts(win = typeof window !== 'undefined' ? window : undefined) {
   const fully = win && win.fully;
   return fully && typeof fully.textToSpeech === 'function' ? fully : null;
+}
+
+// Diagnóstico para a tela da TV: com qual voz este aparelho fala o nome do paciente.
+// 'fully' = voz do Android pelo Fully; 'local' = voz instalada no navegador; 'none' = só a campainha.
+export function nameVoiceStatus(win = typeof window !== 'undefined' ? window : undefined) {
+  if (getFullyTts(win)) return 'fully';
+  try {
+    const voices = win?.speechSynthesis?.getVoices?.() || [];
+    return pickVoices(voices).local ? 'local' : 'none';
+  } catch {
+    return 'none';
+  }
 }
 
 // Duração estimada da fala (~13 caracteres/s). Usada quando o Fully não envia os eventos de TTS.
